@@ -66,7 +66,8 @@ const INPUTS = {
   mldsa:  { v: 10,  min: 0,   max: 100,  step: 1 },
   entry:  { v: 300, min: 100, max: 1500, step: 1 },
   gzip:   { v: 25,  min: 5,   max: 100,  step: 1 },
-  grace:  { v: 35,  min: 0,   max: 90,   step: 1 },
+  caRetention: { v: 35,  min: 0,   max: 730,  step: 1 },
+  mirrorRetention: { v: 35,  min: 0,   max: 730,  step: 1 },
   cpint:  { v: 2,   min: 0.1, max: 60,   step: 0.1 },
   leshare:{ v: 50,  min: 1,   max: 100,  step: 1 },
 };
@@ -132,14 +133,15 @@ function defineRows() {
     { id: 2,  kind: "in2", label: "Certificate lifetime (days)", keys: ["lifeA", "lifeB"] },
     { id: 3,  kind: "in2", label: "Renewal at day", keys: ["renA", "renB"] },
     { id: 4,  kind: "in1", label: "Active certificates (millions)", key: "active" },
-    { id: 5,  kind: "in2x", label: "Share of active certificates (%)", key: "shareA",
+    { id: 5,  kind: "in2x", label: "Split of active certificates between lifetimes, A : B (%)", key: "shareA",
       f: "B = 100 − L5A", fn: c => c === "A" ? V.shareA : 100 - V.shareA, fmt: "p" },
     { id: 6,  kind: "in1", label: "Key mix: P-256 (%)", key: "p256" },
     { id: 7,  kind: "in1", label: "Key mix: ML-DSA-44 (%)", key: "mldsa" },
     { id: 8,  kind: "calc1", label: "Key mix: RSA-2048 (%)", f: "100 − L6 − L7", fn: () => 100 - V.p256 - V.mldsa, fmt: "p" },
     { id: 9,  kind: "in1", label: "Avg TBSCertificateLogEntry size (bytes)", key: "entry" },
     { id: 10, kind: "in1", label: "Entry tile gzip ratio (% of uncompressed)", key: "gzip" },
-    { id: 11, kind: "in1", label: "Retention grace period after expiry (days)", key: "grace" },
+    { id: "11a", kind: "in1", label: "Retention after expiry, CA (days)", key: "caRetention" },
+    { id: "11b", kind: "in1", label: "Retention after expiry, mirror (days)", key: "mirrorRetention" },
     { id: 12, kind: "in1", label: "Checkpoint interval (seconds)", key: "cpint" },
     { id: 13, kind: "in1", label: "Let's Encrypt share of total issuance (%)", key: "leshare" },
 
@@ -163,7 +165,7 @@ function defineRows() {
     { id: 22, kind: "calc2", label: "Issuance per day, per log", f: "L20 ÷ L1",
       fn: (c, L) => V["logs" + c] ? L[20][c] / V["logs" + c] : 0, fmt: "n" },
     { id: 23, kind: "calc2", label: "Issuance per second, per log", f: "L22 ÷ 86400", fn: (c, L) => L[22][c] / 86400, fmt: "n" },
-    { id: 24, kind: "calc2", label: "Retention window (days)", f: "L2 + L11", fn: (c) => V["life" + c] + V.grace, fmt: "n" },
+    { id: 24, kind: "calc2", label: "Retention window (days)", f: "L2 + L11a", fn: (c) => V["life" + c] + V.caRetention, fmt: "n" },
     { id: 25, kind: "calc2", label: "Retained entries, per log", f: "L22 × L24", fn: (c, L) => L[22][c] * L[24][c], fmt: "n" },
 
     { kind: "part", label: "Part IV — Objects per log", cols: true },
@@ -222,19 +224,23 @@ function defineRows() {
     { id: 58, kind: "calc2", label: "Bytes written per day, all logs of type", f: "L56 × L1",
       fn: (c, L) => L[56][c] * V["logs" + c], fmt: "b" },
 
-    { kind: "part", label: "Part VIII — Mirror (all CAs, no pubkey tiles)" },
-    { id: 59, kind: "calc1", label: "Retained entries", f: "(L25A × L1A + L25B × L1B) ÷ (L13 ÷ 100)",
-      fn: L => sumAB(L, 25) / (V.leshare / 100), fmt: "n" },
-    { id: 60, kind: "calc1", label: "Entry tiles", f: "(L26A × L1A + L26B × L1B) ÷ (L13 ÷ 100)",
-      fn: L => sumAB(L, 26) / (V.leshare / 100), fmt: "n" },
-    { id: 61, kind: "calc1", label: "Hash tiles", f: "Σ(L28…L31) × L1 ÷ (L13 ÷ 100)",
-      fn: L => (sumAB(L, 28) + sumAB(L, 29) + sumAB(L, 30) + sumAB(L, 31)) / (V.leshare / 100), fmt: "n" },
-    { id: 62, kind: "calc1", label: "Objects", f: "L60 + L61", total: true, fn: L => L[60] + L[61], fmt: "n" },
-    { id: 63, kind: "calc1", label: "Entry tiles, uncompressed", f: "L59 × L16", fn: L => L[59] * L[16], fmt: "b" },
-    { id: 64, kind: "calc1", label: "Entry tiles, gzip", f: "L59 × L17", fn: L => L[59] * L[17], fmt: "b" },
-    { id: 65, kind: "calc1", label: "Hash tiles", f: "Σ(L39 × L1) ÷ (L13 ÷ 100)", fn: L => sumAB(L, 39) / (V.leshare / 100), fmt: "b" },
-    { id: 66, kind: "calc1", label: "Uncompressed", f: "L63 + L65", total: true, fn: L => L[63] + L[65], fmt: "b" },
-    { id: 67, kind: "calc1", label: "Stored (gzip)", f: "L64 + L65", total: true, fn: L => L[64] + L[65], fmt: "b" },
+    { kind: "part", label: "Part VIII — Mirror (all CAs, no pubkey tiles)", cols: true },
+    { id: 59, kind: "calc2", label: "Retention window (days)", f: "L2 + L11b", fn: (c) => V["life" + c] + V.mirrorRetention, fmt: "n" },
+    { id: 60, kind: "calc2", label: "Retained entries", f: "L22 × L1 × L59 ÷ (L13 ÷ 100)",
+      fn: (c, L) => L[22][c] * V["logs" + c] * L[59][c] / (V.leshare / 100), fmt: "n" },
+    { id: 61, kind: "calc2", label: "Entry tiles (full)", f: "⌊L60 ÷ 256⌋", fn: (c, L) => Math.floor(L[60][c] / TILE), fmt: "n" },
+    { id: 62, kind: "calc2", label: "Hash tiles, levels 0–3 (full)", f: "Σₖ₌₁⁴ ⌊L60 ÷ 256ᵏ⌋",
+      fn: (c, L) => { let t = 0; for (let k = 1; k <= HASH_LEVELS; k++) t += Math.floor(L[60][c] / TILE ** k); return t; }, fmt: "n" },
+    { id: 63, kind: "calc2", label: "Objects", f: "L61 + L62", total: true, fn: (c, L) => L[61][c] + L[62][c], fmt: "n" },
+    { id: 64, kind: "calc2", label: "Entry tiles, uncompressed", f: "L60 × L16", fn: (c, L) => L[60][c] * L[16], fmt: "b" },
+    { id: 65, kind: "calc2", label: "Entry tiles, gzip", f: "L60 × L17", fn: (c, L) => L[60][c] * L[17], fmt: "b" },
+    { id: 66, kind: "calc2", label: "Hash tiles (not compressed)", f: "32 × Σₖ₌₀³ ⌊L60 ÷ 256ᵏ⌋",
+      fn: (c, L) => hashBytes(L[60][c]), fmt: "b" },
+    { id: 67, kind: "calc2", label: "Uncompressed", f: "L64 + L66", total: true, fn: (c, L) => L[64][c] + L[66][c], fmt: "b" },
+    { id: 68, kind: "calc2", label: "Stored (gzip)", f: "L65 + L66", total: true, fn: (c, L) => L[65][c] + L[66][c], fmt: "b" },
+    { id: 69, kind: "calc1", label: "Mirror objects", f: "L63A + L63B", total: true, fn: L => L[63].A + L[63].B, fmt: "n" },
+    { id: 70, kind: "calc1", label: "Mirror uncompressed", f: "L67A + L67B", total: true, fn: L => L[67].A + L[67].B, fmt: "b" },
+    { id: 71, kind: "calc1", label: "Mirror stored (gzip)", f: "L68A + L68B", total: true, fn: L => L[68].A + L[68].B, fmt: "b" },
 
     { kind: "part", label: "Part IX — Summary" },
     { kind: "summary" },
@@ -256,7 +262,6 @@ function dirtyLevels(b) {
 function hashBytes(n) {
   let s = 0; for (let k = 0; k < HASH_LEVELS; k++) s += Math.floor(n / TILE ** k); return s * HASH;
 }
-function sumAB(L, i) { return L[i].A * V.logsA + L[i].B * V.logsB; }
 
 // ---------- State ----------
 const V = {};
@@ -386,8 +391,8 @@ function update(src) {
     [ROWS.lA(), "L42A, L43A, L44A", L[42].A, L[43].A, L[44].A],
     [ROWS.lB(), "L42B, L43B, L44B", L[42].B, L[43].B, L[44].B],
     ["CA total", "A + B", caObj, caU, caS, true],
-    ["Mirror", "L62, L66, L67", L[62], L[66], L[67]],
-    ["Mirror ÷ CA", "", L[62] / caObj, L[66] / caU, L[67] / caS, false, true],
+    ["Mirror", "L69, L70, L71", L[69], L[70], L[71]],
+    ["Mirror ÷ CA", "", L[69] / caObj, L[70] / caU, L[71] / caS, false, true],
   ];
   let s = `<tr><th></th><th>From</th><th class="v">Objects</th><th class="v">Uncompressed</th><th class="v">Stored (gzip)</th></tr>`;
   for (const [name, from, o, u, st, tot, ratio] of rows) {
@@ -409,7 +414,7 @@ function update(src) {
     hl("Let's Encrypt CA: standard log", "Σ(L42 − (L27 + 1) × L1), Σ(L44 − L45)", caObj - pkObj, caS - pkS) +
     hl("Let's Encrypt CA: pubkey tiles", "Σ((L27 + 1) × L1), Σ L45", pkObj, pkS) +
     hl("Let's Encrypt CA: total", "Σ L42, Σ L44", caObj, caS, true) +
-    hl("Every MTCA Mirror", "L62, L67", L[62], L[67], true);
+    hl("Every MTCA Mirror", "L69, L71", L[69], L[71], true);
 
   try {
     const q = new URLSearchParams();

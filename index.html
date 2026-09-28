@@ -16,8 +16,12 @@
     font-size: 20px; margin: 0 0 16px; padding-bottom: 6px; border-bottom: 3px solid var(--line);
     display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;
   }
-  h1 a.src { font-size: 13px; font-weight: 400; color: var(--muted); }
-  h1 a.src:hover { color: #000; }
+  h1 .links { display: flex; gap: 14px; align-items: baseline; }
+  h1 .links a, h1 .links button {
+    font: inherit; font-size: 13px; font-weight: 400; color: var(--muted); text-decoration: underline;
+    background: none; border: 0; padding: 0; cursor: pointer;
+  }
+  h1 .links a:hover, h1 .links button:hover { color: #000; }
   .scroll { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; margin: 0 0 20px; border: 1px solid var(--line); }
   th, td { border: 1px solid var(--line); padding: 4px 6px; vertical-align: middle; }
@@ -48,7 +52,7 @@
 </head>
 <body>
 <main>
-<h1><span>Merkle Tree CA &amp; Mirror Storage</span><a class="src" href="https://github.com/mcpherrinm/mtsizecalc">Source</a></h1>
+<h1><span>Merkle Tree CA &amp; Mirror Storage</span><span class="links"><button type="button" id="csv">Download CSV</button><a href="https://github.com/mcpherrinm/mtsizecalc">Source</a></span></h1>
 <div class="scroll"><table id="headline"></table></div>
 <div class="scroll"><table id="form"></table></div>
 </main>
@@ -298,6 +302,14 @@ function compute() {
   return L;
 }
 
+function totals(L) {
+  return {
+    caObj: L[42].A + L[42].B, caU: L[43].A + L[43].B, caS: L[44].A + L[44].B,
+    pkObj: (L[27].A + (L[25].A > 0 ? 1 : 0)) * V.logsA + (L[27].B + (L[25].B > 0 ? 1 : 0)) * V.logsB,
+    pkS: L[45].A + L[45].B,
+  };
+}
+
 // ---------- Rendering ----------
 function fmtVal(x, fmt) {
   if (!Number.isFinite(x)) return "—";
@@ -391,7 +403,7 @@ function update(src) {
   document.getElementById("algs").innerHTML = a;
 
   // Summary.
-  const caObj = L[42].A + L[42].B, caU = L[43].A + L[43].B, caS = L[44].A + L[44].B;
+  const { caObj, caU, caS, pkObj, pkS } = totals(L);
   const rows = [
     [ROWS.lA(), "L42A, L43A, L44A", L[42].A, L[43].A, L[44].A],
     [ROWS.lB(), "L42B, L43B, L44B", L[42].B, L[43].B, L[44].B],
@@ -409,8 +421,6 @@ function update(src) {
 
   // Headline.
   const gib = x => Number.isFinite(x) ? nf2.format(x / 2 ** 30) + " GiB" : "—";
-  const pkObj = (L[27].A + (L[25].A > 0 ? 1 : 0)) * V.logsA + (L[27].B + (L[25].B > 0 ? 1 : 0)) * V.logsB;
-  const pkS = L[45].A + L[45].B;
   const hl = (name, f, o, b, tot) =>
     `<tr${tot ? ' class="total"' : ""}><td>${name}</td><td class="f">${f}</td>` +
     `<td class="v">${num(o)}</td><td class="v">${gib(b)}</td></tr>`;
@@ -428,11 +438,167 @@ function update(src) {
   } catch (e) {}
 }
 
+// ---------- CSV export ----------
+// Spreadsheet formulas for each calculated line. "L22" refers to line 22 in the same
+// column (A or B) as the formula, "L63A" to a specific column; single-value lines live in
+// column A.
+const LVL = Array.from({ length: HASH_LEVELS }, (_, k) => k ? `1/256^${k}` : "1").join("+");
+const MIXLINE = { p256: 6, mldsa: 7, rsa: 8 };
+const hashBytesX = n => `${HASH}*(` + Array.from({ length: HASH_LEVELS }, (_, k) => k ? `INT(${n}/256^${k})` : `INT(${n})`).join("+") + ")";
+const XF = {
+  5: "100-L5A",
+  8: "100-L6-L7",
+  14: "(" + ALGS.map(a => `L${MIXLINE[a.key]}*${REC_HDR + a.spki}`).join("+") + ")/100",
+  15: "(" + ALGS.map(a => `L${MIXLINE[a.key]}*${a.rand + GZ_REF}`).join("+") + ")/100",
+  16: `${ENT_HDR}+L9`,
+  17: "L16*L10/100",
+  18: `${TILE}*${HASH}`,
+  19: "L4*1000000*L5/100",
+  20: "L19/MIN(L3,L2)",
+  21: "L20*L2",
+  22: "IF(L1=0,0,L20/L1)",
+  23: "L22/86400",
+  24: "L2+L11a",
+  25: "L22*L24",
+  26: "INT(L25/256)",
+  27: "L26",
+  28: "INT(L25/256)",
+  29: "INT(L25/256^2)",
+  30: "INT(L25/256^3)",
+  31: "INT(L25/256^4)",
+  32: `IF(L25>0,${2 + HASH_LEVELS},0)`,
+  33: "IF(L25>0,2,0)",
+  34: "L26+L27+L28+L29+L30+L31+L32+L33",
+  35: "L25*L16",
+  36: "L25*L17",
+  37: "L25*L14",
+  38: "L25*L15",
+  39: hashBytesX("L25"),
+  40: "L35+L37+L39",
+  41: "L36+L38+L39",
+  42: "L34*L1",
+  43: "L40*L1",
+  44: "L41*L1",
+  45: "L38*L1",
+  46: "MIN(86400/L12,L22)",
+  47: "IF(L46=0,0,L22/L46)",
+  48: `L22/256*(2+${LVL})`,
+  49: "IF(L47<=0,0," + Array.from({ length: HASH_LEVELS }, (_, k) => k ? `MIN(1,L47/256^${k})` : "MIN(1,L47)").join("+") + ")",
+  50: "L46*(2+L49)",
+  51: "L50",
+  52: "L46",
+  53: "L48+L50+L51+L52",
+  54: `L22*(L17+L15+${HASH}*(${LVL}))`,
+  55: `L46*${PART_FILL}*(L17+L15+${HASH}*L49)`,
+  56: "L54+L55",
+  57: "L53*L1",
+  58: "L56*L1",
+  59: "L2+L11b",
+  60: "L22*L1*L59/(L13/100)",
+  61: "INT(L60/256)",
+  62: Array.from({ length: HASH_LEVELS }, (_, k) => `INT(L60/256^${k + 1})`).join("+"),
+  63: "L61+L62",
+  64: "L60*L16",
+  65: "L60*L17",
+  66: hashBytesX("L60"),
+  67: "L64+L66",
+  68: "L65+L66",
+  69: "L63A+L63B",
+  70: "L67A+L67B",
+  71: "L68A+L68B",
+};
+// Summary lines: [label, formula, value from totals()].
+const PK_OBJ = "(L27A+IF(L25A>0,1,0))*L1A+(L27B+IF(L25B>0,1,0))*L1B";
+const XF_SUMMARY = [
+  ["CA total: objects", "L42A+L42B", T => T.caObj],
+  ["CA total: uncompressed", "L43A+L43B", T => T.caU],
+  ["CA total: stored (compressed)", "L44A+L44B", T => T.caS],
+  ["CA pubkey tiles: objects", PK_OBJ, T => T.pkObj],
+  ["CA pubkey tiles: stored (compressed)", "L45A+L45B", T => T.pkS],
+  ["CA standard log: objects", `L42A+L42B-(${PK_OBJ})`, T => T.caObj - T.pkObj],
+  ["CA standard log: stored (compressed)", "L44A+L44B-L45A-L45B", T => T.caS - T.pkS],
+  ["Mirror ÷ CA: objects", "L69/(L42A+L42B)", (T, L) => L[69] / T.caObj],
+  ["Mirror ÷ CA: uncompressed", "L70/(L43A+L43B)", (T, L) => L[70] / T.caU],
+  ["Mirror ÷ CA: stored (compressed)", "L71/(L44A+L44B)", (T, L) => L[71] / T.caS],
+];
+
+// Columns: line, description, formula, A, B, JS A, JS B, check A, check B.
+function buildCSV() {
+  readValues();
+  const L = compute(), T = totals(L);
+  const COL = { A: "D", B: "E" }, JS = { A: "F", B: "G" }, CHK = { A: "H", B: "I" };
+  const two = new Set(["in2", "in2x", "calc2"]);
+  const rowOf = {}, twoCol = {};
+  let n = 2;
+  for (const r of ROWS) {
+    if (r.kind === "algs") continue;
+    if (r.kind === "summary") { n += XF_SUMMARY.length; continue; }
+    if (r.id) { rowOf[r.id] = n; twoCol[r.id] = two.has(r.kind); }
+    n++;
+  }
+  const lastRow = n;
+  const fx = (src, c) => "=" + src.replace(/\bL(\d+[ab]?)([AB]?)\b/g, (m, id, cc) => {
+    if (!(id in rowOf)) throw new Error("bad ref " + m);
+    return (twoCol[id] ? COL[cc || c] : "D") + rowOf[id];
+  });
+  const jsv = x => Number.isFinite(x) ? String(x) : "";
+  const chk = (v, j) => `=IF(ISERROR(${v}),IF(${j}="","OK","MISMATCH"),` +
+    `IFERROR(IF(ABS(${v}-${j})<=1E-9*MAX(1,ABS(${j})),"OK","MISMATCH"),"MISMATCH"))`;
+
+  const out = [["Line", "Description", "Formula", "A", "B", "JS A", "JS B", "Check A", "Check B"]];
+  for (const r of ROWS) {
+    const row = out.length + 1;
+    const cells = new Array(9).fill("");
+    const calc = (c, x) => {
+      cells[c === "A" ? 3 : 4] = x.f;
+      cells[c === "A" ? 5 : 6] = jsv(x.js);
+      cells[c === "A" ? 7 : 8] = chk(COL[c] + row, JS[c] + row);
+    };
+    if (r.kind === "algs") continue;
+    if (r.kind === "summary") {
+      for (const [label, f, v] of XF_SUMMARY) {
+        const s = new Array(9).fill("");
+        s[1] = label; s[2] = f;
+        s[3] = fx(f, "A"); s[5] = jsv(v(T, L)); s[7] = chk("D" + (out.length + 1), "F" + (out.length + 1));
+        out.push(s);
+      }
+      continue;
+    }
+    if (r.kind === "part") {
+      cells[1] = r.label;
+      if (r.cols) { cells[3] = ROWS.lA(); cells[4] = ROWS.lB(); }
+      out.push(cells);
+      continue;
+    }
+    cells[0] = r.id; cells[1] = r.label.trim(); cells[2] = r.f || "";
+    if (r.kind === "in1") cells[3] = V[r.key];
+    else if (r.kind === "in2") { cells[3] = V[r.keys[0]]; cells[4] = V[r.keys[1]]; }
+    else if (r.kind === "in2x") { cells[3] = V[r.key]; calc("B", { f: fx(XF[r.id], "B"), js: r.fn("B") }); }
+    else if (r.kind === "calc1") calc("A", { f: fx(XF[r.id], "A"), js: L[r.id] });
+    else if (r.kind === "calc2") for (const c of ["A", "B"]) calc(c, { f: fx(XF[r.id], c), js: L[r.id][c] });
+    out.push(cells);
+  }
+  out.push(["", "All checks", "", "", "", "", "", `=IF(COUNTIF(H2:I${lastRow - 1},"MISMATCH")=0,"OK","MISMATCH")`, ""]);
+  if (out.length !== lastRow) throw new Error("row count mismatch");
+  const esc = v => { v = String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  // BOM so Excel reads the file as UTF-8.
+  return "\ufeff" + out.map(r => r.map(esc).join(",")).join("\r\n") + "\r\n";
+}
+
+function downloadCSV() {
+  const url = URL.createObjectURL(new Blob([buildCSV()], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = "mtc-storage.csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 constrain();
 readValues();
 defineRows();
 build();
 update();
+document.getElementById("csv").addEventListener("click", downloadCSV);
 </script>
 </body>
 </html>

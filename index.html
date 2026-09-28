@@ -12,7 +12,12 @@
     font: 14px/1.35 -apple-system, "Helvetica Neue", Arial, sans-serif;
   }
   main { max-width: 1180px; margin: 0 auto; }
-  h1 { font-size: 20px; margin: 0 0 16px; padding-bottom: 6px; border-bottom: 3px solid var(--line); }
+  h1 {
+    font-size: 20px; margin: 0 0 16px; padding-bottom: 6px; border-bottom: 3px solid var(--line);
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  }
+  h1 a.src { font-size: 13px; font-weight: 400; color: var(--muted); }
+  h1 a.src:hover { color: #000; }
   .scroll { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; margin: 0 0 20px; border: 1px solid var(--line); }
   th, td { border: 1px solid var(--line); padding: 4px 6px; vertical-align: middle; }
@@ -43,7 +48,7 @@
 </head>
 <body>
 <main>
-<h1>Merkle Tree CA &amp; Mirror Storage</h1>
+<h1><span>Merkle Tree CA &amp; Mirror Storage</span><a class="src" href="https://github.com/mcpherrinm/mtsizecalc">Source</a></h1>
 <div class="scroll"><table id="headline"></table></div>
 <div class="scroll"><table id="form"></table></div>
 </main>
@@ -65,7 +70,7 @@ const INPUTS = {
   p256:   { v: 30,  min: 0,   max: 100,  step: 1 },
   mldsa:  { v: 10,  min: 0,   max: 100,  step: 1 },
   entry:  { v: 300, min: 100, max: 1500, step: 1 },
-  gzip:   { v: 25,  min: 5,   max: 100,  step: 1 },
+  compressed: { v: 25,  min: 5,   max: 100,  step: 1 },
   caRetention: { v: 35,  min: 0,   max: 730,  step: 1 },
   mirrorRetention: { v: 35,  min: 0,   max: 730,  step: 1 },
   cpint:  { v: 2,   min: 0.1, max: 60,   step: 0.1 },
@@ -91,7 +96,7 @@ try {
 const TILE = 256, HASH = 32, HASH_TILE = TILE * HASH;
 const REC_HDR = 4;   // pubkey record: uint16 bundle length + uint16 type
 const ENT_HDR = 6;   // entry record: uint16 bundle length + uint16 extensions length + uint16 type
-const GZ_REF = 3;    // est. gzip cost of the repeated per-record prefix (back-reference)
+const GZ_REF = 3;    // est. compressed cost of the repeated per-record prefix (back-reference)
 const PART_FILL = 127.5; // mean records in a partial tile
 const HASH_LEVELS = 4;
 const ALGS = [
@@ -139,7 +144,7 @@ function defineRows() {
     { id: 7,  kind: "in1", label: "Key mix: ML-DSA-44 (%)", key: "mldsa" },
     { id: 8,  kind: "calc1", label: "Key mix: RSA-2048 (%)", f: "100 − L6 − L7", fn: () => 100 - V.p256 - V.mldsa, fmt: "p" },
     { id: 9,  kind: "in1", label: "Avg TBSCertificateLogEntry size (bytes)", key: "entry" },
-    { id: 10, kind: "in1", label: "Entry tile gzip ratio (% of uncompressed)", key: "gzip" },
+    { id: 10, kind: "in1", label: "Entry tile compression ratio (% of uncompressed)", key: "compressed" },
     { id: "11a", kind: "in1", label: "Retention after expiry, CA (days)", key: "caRetention" },
     { id: "11b", kind: "in1", label: "Retention after expiry, mirror (days)", key: "mirrorRetention" },
     { id: 12, kind: "in1", label: "Checkpoint interval (seconds)", key: "cpint" },
@@ -149,12 +154,12 @@ function defineRows() {
     { kind: "algs" },
     { id: 14, kind: "calc1", label: "Pubkey record, uncompressed (bytes)", f: "Σ (mix × (4 + SPKI))",
       fn: () => ALGS.reduce((s, a) => s + mix(a.key) * (REC_HDR + a.spki), 0), fmt: "n" },
-    { id: 15, kind: "calc1", label: "Pubkey record, gzip (bytes)", f: "Σ (mix × (key + 3))",
+    { id: 15, kind: "calc1", label: "Pubkey record, compressed (bytes)", f: "Σ (mix × (key + 3))",
       fn: () => ALGS.reduce((s, a) => s + mix(a.key) * (a.rand + GZ_REF), 0), fmt: "n" },
     { id: 16, kind: "calc1", label: "Entry record, uncompressed (bytes)", f: "2 + 2 + 2 + L9",
       fn: () => ENT_HDR + V.entry, fmt: "n" },
-    { id: 17, kind: "calc1", label: "Entry record, gzip (bytes)", f: "L16 × L10 ÷ 100",
-      fn: L => L[16] * V.gzip / 100, fmt: "n" },
+    { id: 17, kind: "calc1", label: "Entry record, compressed (bytes)", f: "L16 × L10 ÷ 100",
+      fn: L => L[16] * V.compressed / 100, fmt: "n" },
     { id: 18, kind: "calc1", label: "Hash tile (bytes)", f: "256 × 32", fn: () => HASH_TILE, fmt: "n" },
 
     { kind: "part", label: "Part III — Issuance", cols: true },
@@ -183,21 +188,21 @@ function defineRows() {
 
     { kind: "part", label: "Part V — Bytes per log", cols: true },
     { id: 35, kind: "calc2", label: "Entry tiles, uncompressed", f: "L25 × L16", fn: (c, L) => L[25][c] * L[16], fmt: "b" },
-    { id: 36, kind: "calc2", label: "Entry tiles, gzip", f: "L25 × L17", fn: (c, L) => L[25][c] * L[17], fmt: "b" },
+    { id: 36, kind: "calc2", label: "Entry tiles, compressed", f: "L25 × L17", fn: (c, L) => L[25][c] * L[17], fmt: "b" },
     { id: 37, kind: "calc2", label: "Pubkey tiles, uncompressed", f: "L25 × L14", fn: (c, L) => L[25][c] * L[14], fmt: "b" },
-    { id: 38, kind: "calc2", label: "Pubkey tiles, gzip", f: "L25 × L15", fn: (c, L) => L[25][c] * L[15], fmt: "b" },
+    { id: 38, kind: "calc2", label: "Pubkey tiles, compressed", f: "L25 × L15", fn: (c, L) => L[25][c] * L[15], fmt: "b" },
     { id: 39, kind: "calc2", label: "Hash tiles (not compressed)", f: "32 × Σₖ₌₀³ ⌊L25 ÷ 256ᵏ⌋",
       fn: (c, L) => hashBytes(L[25][c]), fmt: "b" },
     { id: 40, kind: "calc2", label: "Per log, uncompressed", f: "L35 + L37 + L39", total: true,
       fn: (c, L) => L[35][c] + L[37][c] + L[39][c], fmt: "b" },
-    { id: 41, kind: "calc2", label: "Per log, stored (gzip)", f: "L36 + L38 + L39", total: true,
+    { id: 41, kind: "calc2", label: "Per log, stored (compressed)", f: "L36 + L38 + L39", total: true,
       fn: (c, L) => L[36][c] + L[38][c] + L[39][c], fmt: "b" },
 
     { kind: "part", label: "Part VI — All logs of each type", cols: true },
     { id: 42, kind: "calc2", label: "Objects", f: "L34 × L1", fn: (c, L) => L[34][c] * V["logs" + c], fmt: "n" },
     { id: 43, kind: "calc2", label: "Uncompressed", f: "L40 × L1", fn: (c, L) => L[40][c] * V["logs" + c], fmt: "b" },
-    { id: 44, kind: "calc2", label: "Stored (gzip)", f: "L41 × L1", fn: (c, L) => L[41][c] * V["logs" + c], fmt: "b" },
-    { id: 45, kind: "calc2", label: "  of which pubkey tiles (gzip)", f: "L38 × L1", fn: (c, L) => L[38][c] * V["logs" + c], fmt: "b" },
+    { id: 44, kind: "calc2", label: "Stored (compressed)", f: "L41 × L1", fn: (c, L) => L[41][c] * V["logs" + c], fmt: "b" },
+    { id: 45, kind: "calc2", label: "  of which pubkey tiles (compressed)", f: "L38 × L1", fn: (c, L) => L[38][c] * V["logs" + c], fmt: "b" },
 
     { kind: "part", label: "Part VII — CA writes per day, per log", cols: true },
     { id: 46, kind: "calc2", label: "Checkpoints per day", f: "min(86400 ÷ L12, L22)",
@@ -213,9 +218,9 @@ function defineRows() {
     { id: 52, kind: "calc2", label: "Checkpoint PUTs", f: "L46", fn: (c, L) => L[46][c], fmt: "n" },
     { id: 53, kind: "calc2", label: "Total object operations", f: "L48 + L50 + L51 + L52", total: true,
       fn: (c, L) => L[48][c] + L[50][c] + L[51][c] + L[52][c], fmt: "n" },
-    { id: 54, kind: "calc2", label: "Bytes written, full tiles (gzip)", f: "L22 × (L17 + L15 + 32 × Σₖ₌₀³ 256⁻ᵏ)",
+    { id: 54, kind: "calc2", label: "Bytes written, full tiles (compressed)", f: "L22 × (L17 + L15 + 32 × Σₖ₌₀³ 256⁻ᵏ)",
       fn: (c, L) => L[22][c] * (L[17] + L[15] + HASH * hashLevelSum()), fmt: "b" },
-    { id: 55, kind: "calc2", label: "Bytes written, partial tiles (gzip)", f: "L46 × 127.5 × (L17 + L15 + 32 × L49)",
+    { id: 55, kind: "calc2", label: "Bytes written, partial tiles (compressed)", f: "L46 × 127.5 × (L17 + L15 + 32 × L49)",
       fn: (c, L) => L[46][c] * PART_FILL * (L[17] + L[15] + HASH * L[49][c]), fmt: "b" },
     { id: 56, kind: "calc2", label: "Bytes written per day, per log", f: "L54 + L55", total: true,
       fn: (c, L) => L[54][c] + L[55][c], fmt: "b" },
@@ -233,14 +238,14 @@ function defineRows() {
       fn: (c, L) => { let t = 0; for (let k = 1; k <= HASH_LEVELS; k++) t += Math.floor(L[60][c] / TILE ** k); return t; }, fmt: "n" },
     { id: 63, kind: "calc2", label: "Objects", f: "L61 + L62", total: true, fn: (c, L) => L[61][c] + L[62][c], fmt: "n" },
     { id: 64, kind: "calc2", label: "Entry tiles, uncompressed", f: "L60 × L16", fn: (c, L) => L[60][c] * L[16], fmt: "b" },
-    { id: 65, kind: "calc2", label: "Entry tiles, gzip", f: "L60 × L17", fn: (c, L) => L[60][c] * L[17], fmt: "b" },
+    { id: 65, kind: "calc2", label: "Entry tiles, compressed", f: "L60 × L17", fn: (c, L) => L[60][c] * L[17], fmt: "b" },
     { id: 66, kind: "calc2", label: "Hash tiles (not compressed)", f: "32 × Σₖ₌₀³ ⌊L60 ÷ 256ᵏ⌋",
       fn: (c, L) => hashBytes(L[60][c]), fmt: "b" },
     { id: 67, kind: "calc2", label: "Uncompressed", f: "L64 + L66", total: true, fn: (c, L) => L[64][c] + L[66][c], fmt: "b" },
-    { id: 68, kind: "calc2", label: "Stored (gzip)", f: "L65 + L66", total: true, fn: (c, L) => L[65][c] + L[66][c], fmt: "b" },
+    { id: 68, kind: "calc2", label: "Stored (compressed)", f: "L65 + L66", total: true, fn: (c, L) => L[65][c] + L[66][c], fmt: "b" },
     { id: 69, kind: "calc1", label: "Mirror objects", f: "L63A + L63B", total: true, fn: L => L[63].A + L[63].B, fmt: "n" },
     { id: 70, kind: "calc1", label: "Mirror uncompressed", f: "L67A + L67B", total: true, fn: L => L[67].A + L[67].B, fmt: "b" },
-    { id: 71, kind: "calc1", label: "Mirror stored (gzip)", f: "L68A + L68B", total: true, fn: L => L[68].A + L[68].B, fmt: "b" },
+    { id: 71, kind: "calc1", label: "Mirror stored (compressed)", f: "L68A + L68B", total: true, fn: L => L[68].A + L[68].B, fmt: "b" },
 
     { kind: "part", label: "Part IX — Summary" },
     { kind: "summary" },
@@ -377,7 +382,7 @@ function update(src) {
 
   // Key algorithm table.
   let a = `<tr><th>Algorithm</th><th class="v">SPKI DER (B)</th><th class="v">Key bytes, incompressible</th>` +
-          `<th class="v">Record: 4 + SPKI</th><th class="v">Record gzip: key + 3</th><th class="v">Mix</th></tr>`;
+          `<th class="v">Record: 4 + SPKI</th><th class="v">Record compressed: key + 3</th><th class="v">Mix</th></tr>`;
   for (const g of ALGS) {
     a += `<tr><td>${g.name}</td><td class="v">${g.spki}</td><td class="v">${g.rand}</td>` +
          `<td class="v">${REC_HDR + g.spki}</td><td class="v">${g.rand + GZ_REF}</td>` +
@@ -394,7 +399,7 @@ function update(src) {
     ["Mirror", "L69, L70, L71", L[69], L[70], L[71]],
     ["Mirror ÷ CA", "", L[69] / caObj, L[70] / caU, L[71] / caS, false, true],
   ];
-  let s = `<tr><th></th><th>From</th><th class="v">Objects</th><th class="v">Uncompressed</th><th class="v">Stored (gzip)</th></tr>`;
+  let s = `<tr><th></th><th>From</th><th class="v">Objects</th><th class="v">Uncompressed</th><th class="v">Stored (compressed)</th></tr>`;
   for (const [name, from, o, u, st, tot, ratio] of rows) {
     const f = ratio ? (x => Number.isFinite(x) ? nf2.format(x) + "×" : "—") : null;
     s += `<tr${tot ? ' class="total"' : ""}><td>${name}</td><td class="f">${from}</td>` +
@@ -410,7 +415,7 @@ function update(src) {
     `<tr${tot ? ' class="total"' : ""}><td>${name}</td><td class="f">${f}</td>` +
     `<td class="v">${num(o)}</td><td class="v">${gib(b)}</td></tr>`;
   document.getElementById("headline").innerHTML =
-    `<tr class="part"><th colspan="2">Summary</th><th class="v">Objects</th><th class="v">Stored (gzip)</th></tr>` +
+    `<tr class="part"><th colspan="2">Summary</th><th class="v">Objects</th><th class="v">Stored (compressed)</th></tr>` +
     hl("Let's Encrypt CA: standard log", "Σ(L42 − (L27 + 1) × L1), Σ(L44 − L45)", caObj - pkObj, caS - pkS) +
     hl("Let's Encrypt CA: pubkey tiles", "Σ((L27 + 1) × L1), Σ L45", pkObj, pkS) +
     hl("Let's Encrypt CA: total", "Σ L42, Σ L44", caObj, caS, true) +

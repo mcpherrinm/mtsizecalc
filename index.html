@@ -48,6 +48,34 @@
     text-align: right; border: 1px solid var(--line); border-radius: 0; padding: 2px 4px; background: #fff; color: #000;
   }
   th.v.wide, td.v.wide { width: 17em; }
+  .mixwrap { margin: 4px 7px 8px; }
+  .mixlabels { position: relative; height: 30px; }
+  .mixlabels .lbl {
+    position: absolute; top: 0; font-size: 11px; line-height: 14px; text-align: center; white-space: nowrap;
+  }
+  .mixlabels .lbl i {
+    display: inline-block; width: 8px; height: 8px; margin-right: 3px; border: 1px solid var(--line);
+  }
+  .mixlabels .lbl span {
+    display: block; font-family: ui-monospace, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums;
+  }
+  .mixlead { display: block; width: 100%; height: 18px; overflow: visible; }
+  .mixlead path { fill: none; stroke: var(--line); stroke-width: 1; }
+  .mix { position: relative; height: 24px; border: 1px solid var(--line); touch-action: none; cursor: pointer; user-select: none; }
+  .mix .seg { position: absolute; top: 0; bottom: 0; }
+  .mix .seg:nth-child(1), .mixlabels .lbl:nth-child(1) i { background: #000; }
+  .mix .seg:nth-child(2), .mixlabels .lbl:nth-child(2) i { background: #555; }
+  .mix .seg:nth-child(3), .mixlabels .lbl:nth-child(3) i { background: #aaa; }
+  .mix .seg:nth-child(4), .mixlabels .lbl:nth-child(4) i { background: #eee; }
+  .mix .h {
+    position: absolute; top: -5px; bottom: -5px; width: 14px; transform: translateX(-50%); cursor: ew-resize;
+  }
+  .mix .h::before {
+    content: ""; position: absolute; left: 5px; top: 0; bottom: 0; width: 4px; background: #fff;
+    border: 1px solid var(--line);
+  }
+  .mix .h:focus { outline: none; }
+  .mix .h:focus-visible::before { background: #000; }
 </style>
 </head>
 <body>
@@ -73,6 +101,7 @@ const INPUTS = {
   shareA: { v: 10,  min: 0,   max: 100,  step: 1 },
   p256:   { v: 30,  min: 0,   max: 100,  step: 1 },
   mldsa:  { v: 10,  min: 0,   max: 100,  step: 1 },
+  mldsa87:{ v: 0,   min: 0,   max: 100,  step: 1 },
   entry:  { v: 300, min: 100, max: 1500, step: 1 },
   compressed: { v: 25,  min: 5,   max: 100,  step: 1 },
   caRetention: { v: 35,  min: 0,   max: 730,  step: 1 },
@@ -107,6 +136,7 @@ const ALGS = [
   { key: "p256",  name: "P-256",     spki: 91,   rand: 64 },
   { key: "rsa",   name: "RSA-2048",  spki: 294,  rand: 256 },
   { key: "mldsa", name: "ML-DSA-44", spki: 1334, rand: 1312 },
+  { key: "mldsa87", name: "ML-DSA-87", spki: 2614, rand: 2592 },
 ];
 
 // ---------- Formatting ----------
@@ -144,9 +174,11 @@ function defineRows() {
     { id: 4,  kind: "in1", label: "Active certificates (millions)", key: "active" },
     { id: 5,  kind: "in2x", label: "Split of active certificates between lifetimes, A : B (%)", key: "shareA",
       f: "B = 100 − L5A", fn: c => c === "A" ? V.shareA : 100 - V.shareA, fmt: "p" },
-    { id: 6,  kind: "in1", label: "Key mix: P-256 (%)", key: "p256" },
-    { id: 7,  kind: "in1", label: "Key mix: ML-DSA-44 (%)", key: "mldsa" },
-    { id: 8,  kind: "calc1", label: "Key mix: RSA-2048 (%)", f: "100 − L6 − L7", fn: () => 100 - V.p256 - V.mldsa, fmt: "p" },
+    { kind: "mixbar", label: "Key mix (drag the boundaries)" },
+    { id: 6,  kind: "in1", label: "Key mix: P-256 (%)", key: "p256", noRange: true },
+    { id: "7a", kind: "in1", label: "Key mix: ML-DSA-44 (%)", key: "mldsa", noRange: true },
+    { id: "7b", kind: "in1", label: "Key mix: ML-DSA-87 (%)", key: "mldsa87", noRange: true },
+    { id: 8,  kind: "calc1", label: "Key mix: RSA-2048 (%)", f: "100 − L6 − L7a − L7b", fn: () => 100 * mix("rsa"), fmt: "p" },
     { id: 9,  kind: "in1", label: "Avg TBSCertificateLogEntry size (bytes)", key: "entry" },
     { id: 10, kind: "in1", label: "Entry tile compression ratio (% of uncompressed)", key: "compressed" },
     { id: "11a", kind: "in1", label: "Retention after expiry, CA (days)", key: "caRetention" },
@@ -257,10 +289,10 @@ function defineRows() {
   ROWS.lA = lA; ROWS.lB = lB;
 }
 
+const MIXKEYS = ["p256", "mldsa", "mldsa87"];
 function mix(k) {
-  if (k === "p256") return V.p256 / 100;
-  if (k === "mldsa") return V.mldsa / 100;
-  return (100 - V.p256 - V.mldsa) / 100;
+  if (MIXKEYS.includes(k)) return V[k] / 100;
+  return (100 - MIXKEYS.reduce((s, m) => s + V[m], 0)) / 100;
 }
 function hashLevelSum() { let s = 0; for (let k = 0; k < HASH_LEVELS; k++) s += TILE ** -k; return s; }
 function dirtyLevels(b) {
@@ -287,8 +319,13 @@ function constrain(changed) {
     // lose it; readValues applies the limit instead.
     I["ren" + c].max = I["life" + c].v;
   }
-  if (I.p256.v + I.mldsa.v > 100) {
-    if (changed === "p256") I.mldsa.v = 100 - I.p256.v; else I.p256.v = 100 - I.mldsa.v;
+  // Keep the key mix at or under 100% by taking the excess from the other shares.
+  let over = MIXKEYS.reduce((s, m) => s + I[m].v, 0) - 100;
+  for (const m of MIXKEYS) {
+    if (over <= 0) break;
+    if (m === changed) continue;
+    const d = Math.min(over, I[m].v);
+    I[m].v -= d; over -= d;
   }
 }
 
@@ -318,9 +355,10 @@ function fmtVal(x, fmt) {
   return num(x);
 }
 
-function inputCell(key) {
+function inputCell(key, noRange) {
   const s = INPUTS[key];
-  return `<div class="in"><input type="range" data-k="${key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.v}">` +
+  return `<div class="in">` +
+         (noRange ? "" : `<input type="range" data-k="${key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.v}">`) +
          `<input type="number" data-k="${key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.v}"></div>`;
 }
 
@@ -339,7 +377,16 @@ function build() {
            `<td class="v wide">${inputCell(r.key)}</td><td class="v wide" data-id="${r.id}" data-c="B"></td></tr>`;
     } else if (r.kind === "in1") {
       h += `<tr><td class="n">${r.id}</td><td>${r.label}</td><td class="f"></td>` +
-           `<td class="v wide" colspan="2">${inputCell(r.key)}</td></tr>`;
+           `<td class="v wide" colspan="2">${inputCell(r.key, r.noRange)}</td></tr>`;
+    } else if (r.kind === "mixbar") {
+      h += `<tr><td class="n"></td><td>${r.label}</td><td class="f"></td><td colspan="2">` +
+           `<div class="mixwrap"><div class="mixlabels" id="mixlabels">` +
+           MIXBAR.map(g => `<div class="lbl"><i></i>${g.name}<span></span></div>`).join("") +
+           `</div><svg class="mixlead" id="mixlead"><path></path></svg>` +
+           `<div class="mix" id="mix">${MIXBAR.map(() => `<div class="seg"></div>`).join("")}` +
+           MIXBAR.slice(0, -1).map((g, i) => `<div class="h" role="slider" tabindex="0" data-h="${i}" ` +
+             `aria-label="Boundary between ${g.name} and ${MIXBAR[i + 1].name}"></div>`).join("") +
+           `</div></div></td></tr>`;
     } else if (r.kind === "calc1") {
       h += `<tr${r.total ? ' class="total"' : ""}><td class="n">${r.id}</td><td>${r.label}</td><td class="f">${r.f}</td>` +
            `<td class="blank"></td><td class="v wide" data-id="${r.id}"></td></tr>`;
@@ -366,6 +413,106 @@ function build() {
   });
   // Once a number field is committed (blur/Enter), show the value actually used.
   t.addEventListener("change", e => { if (e.target.dataset.k) update(); });
+  buildMixBar(document.getElementById("mix"));
+  window.addEventListener("resize", updateMixBar);
+}
+
+// ---------- Key mix bar ----------
+// A stacked bar of the key mix, ordered by key size. Handle i sits at the cumulative share
+// of the first i + 1 algorithms; moving it trades share between the segments on either side.
+const MIXBAR = [...ALGS].sort((a, b) => a.spki - b.spki);
+const share = k => MIXKEYS.includes(k) ? INPUTS[k].v : 100 - MIXKEYS.reduce((s, m) => s + INPUTS[m].v, 0);
+function mixCum() {
+  const c = []; let s = 0;
+  for (const g of MIXBAR.slice(0, -1)) c.push(s += share(g.key));
+  return c;
+}
+function moveHandle(i, x) {
+  const c = mixCum();
+  c[i] = Math.min(i < c.length - 1 ? c[i + 1] : 100, Math.max(i ? c[i - 1] : 0, Math.round(x)));
+  // RSA-2048 is the remainder, so only the other shares are stored.
+  MIXBAR.forEach((g, j) => {
+    if (MIXKEYS.includes(g.key)) INPUTS[g.key].v = (j < c.length ? c[j] : 100) - (j ? c[j - 1] : 0);
+  });
+  update();
+}
+function buildMixBar(bar) {
+  let active = null, start = null, cand = [];
+  const pct = e => { const r = bar.getBoundingClientRect(); return (e.clientX - r.left) / r.width * 100; };
+  // Several handles can share a position (a 0% segment); pick one by drag direction.
+  const pick = x => {
+    const at = cand.length ? mixCum()[cand[0]] : 0;
+    if (cand.length === 1) return cand[0];
+    if (Math.round(x) > at) return cand[cand.length - 1];
+    if (Math.round(x) < at) return cand[0];
+    return null;
+  };
+  bar.addEventListener("pointerdown", e => {
+    const x = pct(e), c = mixCum();
+    const d = Math.min(...c.map(v => Math.abs(v - x)));
+    cand = c.map((v, i) => i).filter(i => Math.abs(c[i] - x) === d);
+    start = x;
+    active = pick(x);
+    if (active !== null) moveHandle(active, x);
+    bar.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  bar.addEventListener("pointermove", e => {
+    if (start === null) return;
+    const x = pct(e);
+    if (active === null) active = pick(x);
+    if (active !== null) moveHandle(active, x);
+  });
+  const end = () => { start = null; active = null; };
+  bar.addEventListener("pointerup", end);
+  bar.addEventListener("pointercancel", end);
+  bar.addEventListener("keydown", e => {
+    const i = e.target.dataset.h;
+    if (i === undefined) return;
+    const step = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -10, PageUp: 10, Home: -100, End: 100 }[e.key];
+    if (!step) return;
+    moveHandle(+i, mixCum()[i] + step);
+    e.preventDefault();
+  });
+}
+function updateMixBar() {
+  const bar = document.getElementById("mix");
+  const c = mixCum(), segs = bar.querySelectorAll(".seg");
+  const W = bar.clientWidth, mids = [];
+  MIXBAR.forEach((g, i) => {
+    const lo = i ? c[i - 1] : 0, w = (i < c.length ? c[i] : 100) - lo;
+    const el = segs[i];
+    el.style.left = lo + "%"; el.style.width = w + "%";
+    el.title = `${g.name} ${nf2.format(w)}%`;
+    mids.push((lo + w / 2) / 100 * W);
+  });
+
+  // Labels sit above their segment's midpoint, pushed apart so they never overlap, with a
+  // leader line down to the segment (so even a 0% segment is visible).
+  const lbls = [...document.getElementById("mixlabels").children];
+  lbls.forEach((el, i) => { el.querySelector("span").textContent = nf2.format(share(MIXBAR[i].key)) + "%"; });
+  const GAP = 8, wd = lbls.map(el => el.offsetWidth), left = [];
+  for (let i = 0; i < lbls.length; i++) {
+    left[i] = Math.max(mids[i] - wd[i] / 2, i ? left[i - 1] + wd[i - 1] + GAP : 0);
+  }
+  for (let i = lbls.length - 1; i >= 0; i--) {
+    left[i] = Math.min(left[i], i < lbls.length - 1 ? left[i + 1] - wd[i] - GAP : W - wd[i]);
+  }
+  for (let i = 0; i < lbls.length; i++) left[i] = Math.max(left[i], i ? left[i - 1] + wd[i - 1] + GAP : 0);
+  const svg = document.getElementById("mixlead"), H = svg.clientHeight;
+  let d = "";
+  lbls.forEach((el, i) => {
+    el.style.left = left[i] + "px";
+    const x = left[i] + wd[i] / 2, m = Math.min(W - 0.5, Math.max(0.5, mids[i]));
+    d += `M${x} 0V3L${m} ${H - 3}V${H}`;
+  });
+  svg.querySelector("path").setAttribute("d", d);
+  bar.querySelectorAll(".h").forEach((el, i) => {
+    el.style.left = c[i] + "%";
+    el.setAttribute("aria-valuemin", i ? c[i - 1] : 0);
+    el.setAttribute("aria-valuemax", i < c.length - 1 ? c[i + 1] : 100);
+    el.setAttribute("aria-valuenow", c[i]);
+  });
 }
 
 function update(src) {
@@ -377,6 +524,7 @@ function update(src) {
     if (el !== src) el.value = V[el.dataset.k];
   }
   const L = compute();
+  updateMixBar();
 
   for (const el of document.querySelectorAll("[data-hdr]")) {
     el.textContent = el.dataset.hdr === "A" ? ROWS.lA() : ROWS.lB();
@@ -443,11 +591,11 @@ function update(src) {
 // column (A or B) as the formula, "L63A" to a specific column; single-value lines live in
 // column A.
 const LVL = Array.from({ length: HASH_LEVELS }, (_, k) => k ? `1/256^${k}` : "1").join("+");
-const MIXLINE = { p256: 6, mldsa: 7, rsa: 8 };
+const MIXLINE = { p256: 6, mldsa: "7a", mldsa87: "7b", rsa: 8 };
 const hashBytesX = n => `${HASH}*(` + Array.from({ length: HASH_LEVELS }, (_, k) => k ? `INT(${n}/256^${k})` : `INT(${n})`).join("+") + ")";
 const XF = {
   5: "100-L5A",
-  8: "100-L6-L7",
+  8: "100-L6-L7a-L7b",
   14: "(" + ALGS.map(a => `L${MIXLINE[a.key]}*${REC_HDR + a.spki}`).join("+") + ")/100",
   15: "(" + ALGS.map(a => `L${MIXLINE[a.key]}*${a.rand + GZ_REF}`).join("+") + ")/100",
   16: `${ENT_HDR}+L9`,
@@ -531,7 +679,7 @@ function buildCSV() {
   const rowOf = {}, twoCol = {};
   let n = 2;
   for (const r of ROWS) {
-    if (r.kind === "algs") continue;
+    if (r.kind === "algs" || r.kind === "mixbar") continue;
     if (r.kind === "summary") { n += XF_SUMMARY.length; continue; }
     if (r.id) { rowOf[r.id] = n; twoCol[r.id] = two.has(r.kind); }
     n++;
@@ -554,7 +702,7 @@ function buildCSV() {
       cells[c === "A" ? 5 : 6] = jsv(x.js);
       cells[c === "A" ? 7 : 8] = chk(COL[c] + row, JS[c] + row);
     };
-    if (r.kind === "algs") continue;
+    if (r.kind === "algs" || r.kind === "mixbar") continue;
     if (r.kind === "summary") {
       for (const [label, f, v] of XF_SUMMARY) {
         const s = new Array(9).fill("");

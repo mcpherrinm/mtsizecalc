@@ -71,14 +71,10 @@
   .mix .seg:nth-child(3), .mixlabels .lbl:nth-child(3) i { background: #aaa; }
   .mix .seg:nth-child(4), .mixlabels .lbl:nth-child(4) i { background: #eee; }
   .mix .h {
-    position: absolute; top: -5px; bottom: -5px; width: 14px; transform: translateX(-50%); cursor: ew-resize;
-  }
-  .mix .h::before {
-    content: ""; position: absolute; left: 5px; top: 0; bottom: 0; width: 4px; background: #fff;
-    border: 1px solid var(--line);
+    position: absolute; top: -5px; bottom: -5px; background: #fff; border: 1px solid var(--line); cursor: ew-resize;
   }
   .mix .h:focus { outline: none; }
-  .mix .h:focus-visible::before { background: #000; }
+  .mix .h:focus-visible { background: #000; box-shadow: inset 0 0 0 1px #fff; }
 </style>
 </head>
 <body>
@@ -447,37 +443,48 @@ function moveHandle(mb, i, x) {
   });
   update();
 }
+// Each handle gets its own HANDLE_W-pixel slot and the segments share the remaining width,
+// so handles never overlap: a 0% segment is two handles side by side.
+const HANDLE_W = 8;
+function mixGeom(mb) {
+  const n = mb.segs.length - 1, W = mb.bar.clientWidth;
+  const U = Math.max(0, W - n * HANDLE_W) / 100;  // pixels per percent
+  const c = mixCum(mb);
+  // Pixel left edge of segment i, and of handle i (which follows segment i).
+  const segL = i => (i ? c[i - 1] : 0) * U + i * HANDLE_W;
+  const hL = i => c[i] * U + i * HANDLE_W;
+  return { n, W, U, c, segL, hL };
+}
 function buildMixBar(mb, wrap) {
   const bar = mb.bar = wrap.querySelector(".mix");
   mb.labels = [...wrap.querySelector(".mixlabels").children];
   mb.lead = wrap.querySelector(".mixlead");
-  let active = null, start = null, cand = [];
-  const pct = e => { const r = bar.getBoundingClientRect(); return (e.clientX - r.left) / r.width * 100; };
-  // Several handles can share a position (a 0% segment); pick one by drag direction.
-  const pick = x => {
-    const at = cand.length ? mixCum(mb)[cand[0]] : 0;
-    if (cand.length === 1) return cand[0];
-    if (Math.round(x) > at) return cand[cand.length - 1];
-    if (Math.round(x) < at) return cand[0];
-    return null;
-  };
+  let active = null, grab = 0;
+  const px = e => e.clientX - bar.getBoundingClientRect().left - bar.clientLeft;
+  // Share at which handle i's left edge would sit at pixel x.
+  const toPct = (i, x) => { const g = mixGeom(mb); return g.U ? (x - i * HANDLE_W) / g.U : 0; };
   bar.addEventListener("pointerdown", e => {
-    const x = pct(e), c = mixCum(mb);
-    const d = Math.min(...c.map(v => Math.abs(v - x)));
-    cand = c.map((v, i) => i).filter(i => Math.abs(c[i] - x) === d);
-    start = x;
-    active = pick(x);
-    if (active !== null) moveHandle(mb, active, x);
+    const x = px(e), g = mixGeom(mb);
+    const h = e.target.closest(".h");
+    if (h) {
+      // Dragging a handle: keep the pointer where it grabbed the handle.
+      active = +h.dataset.h; grab = x - g.hL(active);
+    } else {
+      // Clicking the bar: move the nearest handle so it is centred on the pointer.
+      const d = i => Math.abs(g.hL(i) + HANDLE_W / 2 - x);
+      active = 0;
+      for (let i = 1; i < g.n; i++) if (d(i) < d(active)) active = i;
+      grab = HANDLE_W / 2;
+      moveHandle(mb, active, toPct(active, x - grab));
+    }
     bar.setPointerCapture(e.pointerId);
     e.preventDefault();
+    bar.querySelectorAll(".h")[active].focus();
   });
   bar.addEventListener("pointermove", e => {
-    if (start === null) return;
-    const x = pct(e);
-    if (active === null) active = pick(x);
-    if (active !== null) moveHandle(mb, active, x);
+    if (active !== null) moveHandle(mb, active, toPct(active, px(e) - grab));
   });
-  const end = () => { start = null; active = null; };
+  const end = () => { active = null; };
   bar.addEventListener("pointerup", end);
   bar.addEventListener("pointercancel", end);
   bar.addEventListener("keydown", e => {
@@ -490,14 +497,13 @@ function buildMixBar(mb, wrap) {
   });
 }
 function updateMixBar(mb) {
-  const bar = mb.bar, c = mixCum(mb), segs = bar.querySelectorAll(".seg");
-  const W = bar.clientWidth, mids = [], names = mb.segs.map(g => g.name());
+  const bar = mb.bar, segs = bar.querySelectorAll(".seg");
+  const { W, U, c, segL, hL } = mixGeom(mb), mids = [], names = mb.segs.map(g => g.name());
   mb.segs.forEach((g, i) => {
-    const lo = i ? c[i - 1] : 0, w = (i < c.length ? c[i] : 100) - lo;
-    const el = segs[i];
-    el.style.left = lo + "%"; el.style.width = w + "%";
+    const w = share(mb, g.key), el = segs[i];
+    el.style.left = segL(i) + "px"; el.style.width = w * U + "px";
     el.title = `${names[i]} ${nf2.format(w)}%`;
-    mids.push((lo + w / 2) / 100 * W);
+    mids.push(segL(i) + w * U / 2);
   });
 
   // Labels sit above their segment's midpoint, pushed apart so they never overlap, with a
@@ -524,7 +530,7 @@ function updateMixBar(mb) {
   });
   mb.lead.querySelector("path").setAttribute("d", d);
   bar.querySelectorAll(".h").forEach((el, i) => {
-    el.style.left = c[i] + "%";
+    el.style.left = hL(i) + "px"; el.style.width = HANDLE_W + "px";
     el.setAttribute("aria-label", `Boundary between ${names[i]} and ${names[i + 1]}`);
     el.setAttribute("aria-valuemin", i ? c[i - 1] : 0);
     el.setAttribute("aria-valuemax", i < c.length - 1 ? c[i + 1] : 100);

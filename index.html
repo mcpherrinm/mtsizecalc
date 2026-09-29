@@ -57,6 +57,8 @@
     display: inline-block; width: 8px; height: 8px; margin-right: 3px; border: 1px solid var(--line);
   }
   .mixlabels .lbl b { font-weight: 400; }
+  .mixlabels .lbl em { font-style: normal; color: var(--muted); }
+  .mixlabels .lbl u { text-decoration: none; }
   .mixlabels .lbl span {
     display: block; font-family: ui-monospace, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums;
   }
@@ -160,6 +162,7 @@ function bytesCell(x) {
 //   part:   section header
 //   in2:    per-column input (A,B)
 //   in1:    single input
+//   mix:    stacked bar of shares summing to 100% (see MIXBARS)
 //   calc2:  per-column calc; fn(c, L) -> number where c is "A"|"B"
 //   calc1:  single calc; fn(L) -> number
 // fmt: "n" (number), "b" (bytes), "p" (percent), "d" (days)
@@ -173,117 +176,111 @@ function defineRows() {
     { id: 2,  kind: "in2", label: "Certificate lifetime (days)", keys: ["lifeA", "lifeB"] },
     { id: 3,  kind: "in2", label: "Renewal at day", keys: ["renA", "renB"] },
     { id: 4,  kind: "in1", label: "Active certificates (millions)", key: "active" },
-    { kind: "mixbar", mix: "life", label: "Split between lifetimes (drag the boundary)" },
-    { id: 5,  kind: "in2x", label: "Split of active certificates between lifetimes, A : B (%)", key: "shareA", noRange: true,
-      f: "B = 100 − L5A", fn: c => c === "A" ? V.shareA : 100 - V.shareA, fmt: "p" },
-    { kind: "mixbar", mix: "key", label: "Key mix (drag the boundaries)" },
-    { id: 6,  kind: "in1", label: "Key mix: P-256 (%)", key: "p256", noRange: true },
-    { id: "7a", kind: "in1", label: "Key mix: ML-DSA-44 (%)", key: "mldsa", noRange: true },
-    { id: "7b", kind: "in1", label: "Key mix: ML-DSA-87 (%)", key: "mldsa87", noRange: true },
-    { id: 8,  kind: "calc1", label: "Key mix: RSA-2048 (%)", f: "100 − L6 − L7a − L7b", fn: () => 100 * mix("rsa"), fmt: "p" },
-    { id: 9,  kind: "in1", label: "Avg TBSCertificateLogEntry size (bytes)", key: "entry" },
-    { id: 10, kind: "in1", label: "Entry tile compression ratio (% of uncompressed)", key: "compressed" },
-    { id: "11a", kind: "in1", label: "Retention after expiry, CA (days)", key: "caRetention" },
-    { id: "11b", kind: "in1", label: "Retention after expiry, mirror (days)", key: "mirrorRetention" },
-    { id: 12, kind: "in1", label: "Checkpoint interval (seconds)", key: "cpint" },
-    { id: 13, kind: "in1", label: "Let's Encrypt share of total issuance (%)", key: "leshare" },
+    { id: 5,  kind: "mix", mix: "life", label: "Split of active certificates between lifetimes (%)", f: "L5B = 100 − L5A" },
+    { id: 6,  kind: "mix", mix: "key", label: "Key mix (%)", f: "L6b = 100 − L6a − L6c − L6d" },
+    { id: 7,  kind: "in1", label: "Avg TBSCertificateLogEntry size (bytes)", key: "entry" },
+    { id: 8, kind: "in1", label: "Entry tile compression ratio (% of uncompressed)", key: "compressed" },
+    { id: "9a", kind: "in1", label: "Retention after expiry, CA (days)", key: "caRetention" },
+    { id: "9b", kind: "in1", label: "Retention after expiry, mirror (days)", key: "mirrorRetention" },
+    { id: 10, kind: "in1", label: "Checkpoint interval (seconds)", key: "cpint" },
+    { id: 11, kind: "in1", label: "Let's Encrypt share of total issuance (%)", key: "leshare" },
 
     { kind: "part", label: "Part II — Record sizes" },
     { kind: "algs" },
-    { id: 14, kind: "calc1", label: "Pubkey record, uncompressed (bytes)", f: "Σ (mix × (4 + SPKI))",
+    { id: 12, kind: "calc1", label: "Pubkey record, uncompressed (bytes)", f: "Σ (mix × (4 + SPKI))",
       fn: () => ALGS.reduce((s, a) => s + mix(a.key) * (REC_HDR + a.spki), 0), fmt: "n" },
-    { id: 15, kind: "calc1", label: "Pubkey record, compressed (bytes)", f: "Σ (mix × (key + 3))",
+    { id: 13, kind: "calc1", label: "Pubkey record, compressed (bytes)", f: "Σ (mix × (key + 3))",
       fn: () => ALGS.reduce((s, a) => s + mix(a.key) * (a.rand + GZ_REF), 0), fmt: "n" },
-    { id: 16, kind: "calc1", label: "Entry record, uncompressed (bytes)", f: "2 + 2 + 2 + L9",
+    { id: 14, kind: "calc1", label: "Entry record, uncompressed (bytes)", f: "2 + 2 + 2 + L7",
       fn: () => ENT_HDR + V.entry, fmt: "n" },
-    { id: 17, kind: "calc1", label: "Entry record, compressed (bytes)", f: "L16 × L10 ÷ 100",
-      fn: L => L[16] * V.compressed / 100, fmt: "n" },
-    { id: 18, kind: "calc1", label: "Hash tile (bytes)", f: "256 × 32", fn: () => HASH_TILE, fmt: "n" },
+    { id: 15, kind: "calc1", label: "Entry record, compressed (bytes)", f: "L14 × L8 ÷ 100",
+      fn: L => L[14] * V.compressed / 100, fmt: "n" },
+    { id: 16, kind: "calc1", label: "Hash tile (bytes)", f: "256 × 32", fn: () => HASH_TILE, fmt: "n" },
 
     { kind: "part", label: "Part III — Issuance", cols: true },
-    { id: 19, kind: "calc2", label: "Active certificates", f: "L4 × 10⁶ × L5 ÷ 100",
+    { id: 17, kind: "calc2", label: "Active certificates", f: "L4 × 10⁶ × L5 ÷ 100",
       fn: (c) => V.active * 1e6 * (c === "A" ? V.shareA : 100 - V.shareA) / 100, fmt: "n" },
-    { id: 20, kind: "calc2", label: "Issuance per day", f: "L19 ÷ L3", fn: (c, L) => L[19][c] / V["ren" + c], fmt: "n" },
-    { id: 21, kind: "calc2", label: "Unexpired certificates", f: "L20 × L2", fn: (c, L) => L[20][c] * V["life" + c], fmt: "n" },
-    { id: 22, kind: "calc2", label: "Issuance per day, per log", f: "L20 ÷ L1",
-      fn: (c, L) => V["logs" + c] ? L[20][c] / V["logs" + c] : 0, fmt: "n" },
-    { id: 23, kind: "calc2", label: "Issuance per second, per log", f: "L22 ÷ 86400", fn: (c, L) => L[22][c] / 86400, fmt: "n" },
-    { id: 24, kind: "calc2", label: "Retention window (days)", f: "L2 + L11a", fn: (c) => V["life" + c] + V.caRetention, fmt: "n" },
-    { id: 25, kind: "calc2", label: "Retained entries, per log", f: "L22 × L24", fn: (c, L) => L[22][c] * L[24][c], fmt: "n" },
+    { id: 18, kind: "calc2", label: "Issuance per day", f: "L17 ÷ L3", fn: (c, L) => L[17][c] / V["ren" + c], fmt: "n" },
+    { id: 19, kind: "calc2", label: "Unexpired certificates", f: "L18 × L2", fn: (c, L) => L[18][c] * V["life" + c], fmt: "n" },
+    { id: 20, kind: "calc2", label: "Issuance per day, per log", f: "L18 ÷ L1",
+      fn: (c, L) => V["logs" + c] ? L[18][c] / V["logs" + c] : 0, fmt: "n" },
+    { id: 21, kind: "calc2", label: "Issuance per second, per log", f: "L20 ÷ 86400", fn: (c, L) => L[20][c] / 86400, fmt: "n" },
+    { id: 22, kind: "calc2", label: "Retention window (days)", f: "L2 + L9a", fn: (c) => V["life" + c] + V.caRetention, fmt: "n" },
+    { id: 23, kind: "calc2", label: "Retained entries, per log", f: "L20 × L22", fn: (c, L) => L[20][c] * L[22][c], fmt: "n" },
 
     { kind: "part", label: "Part IV — Objects per log", cols: true },
-    { id: 26, kind: "calc2", label: "Entry tiles (full)", f: "⌊L25 ÷ 256⌋", fn: (c, L) => Math.floor(L[25][c] / TILE), fmt: "n" },
-    { id: 27, kind: "calc2", label: "Pubkey tiles", f: "L26", fn: (c, L) => L[26][c], fmt: "n" },
-    { id: 28, kind: "calc2", label: "Hash tiles, level 0 (full)", f: "⌊L25 ÷ 256⌋", fn: (c, L) => Math.floor(L[25][c] / TILE), fmt: "n" },
-    { id: 29, kind: "calc2", label: "Hash tiles, level 1 (full)", f: "⌊L25 ÷ 256²⌋", fn: (c, L) => Math.floor(L[25][c] / TILE ** 2), fmt: "n" },
-    { id: 30, kind: "calc2", label: "Hash tiles, level 2 (full)", f: "⌊L25 ÷ 256³⌋", fn: (c, L) => Math.floor(L[25][c] / TILE ** 3), fmt: "n" },
-    { id: 31, kind: "calc2", label: "Hash tiles, level 3 (full)", f: "⌊L25 ÷ 256⁴⌋", fn: (c, L) => Math.floor(L[25][c] / TILE ** 4), fmt: "n" },
-    { id: 32, kind: "calc2", label: "Frontier partial tiles (entry, pubkey, hash L0–L3)", f: "2 + 4",
-      fn: (c, L) => L[25][c] > 0 ? 2 + HASH_LEVELS : 0, fmt: "n" },
-    { id: 33, kind: "calc2", label: "Checkpoint + landmarks", f: "2", fn: (c, L) => L[25][c] > 0 ? 2 : 0, fmt: "n" },
-    { id: 34, kind: "calc2", label: "Objects per log", f: "L26 + … + L33", total: true,
-      fn: (c, L) => [26, 27, 28, 29, 30, 31, 32, 33].reduce((s, i) => s + L[i][c], 0), fmt: "n" },
+    { id: 24, kind: "calc2", label: "Entry tiles (full)", f: "⌊L23 ÷ 256⌋", fn: (c, L) => Math.floor(L[23][c] / TILE), fmt: "n" },
+    { id: 25, kind: "calc2", label: "Pubkey tiles", f: "L24", fn: (c, L) => L[24][c], fmt: "n" },
+    { id: 26, kind: "calc2", label: "Hash tiles, level 0 (full)", f: "⌊L23 ÷ 256⌋", fn: (c, L) => Math.floor(L[23][c] / TILE), fmt: "n" },
+    { id: 27, kind: "calc2", label: "Hash tiles, level 1 (full)", f: "⌊L23 ÷ 256²⌋", fn: (c, L) => Math.floor(L[23][c] / TILE ** 2), fmt: "n" },
+    { id: 28, kind: "calc2", label: "Hash tiles, level 2 (full)", f: "⌊L23 ÷ 256³⌋", fn: (c, L) => Math.floor(L[23][c] / TILE ** 3), fmt: "n" },
+    { id: 29, kind: "calc2", label: "Hash tiles, level 3 (full)", f: "⌊L23 ÷ 256⁴⌋", fn: (c, L) => Math.floor(L[23][c] / TILE ** 4), fmt: "n" },
+    { id: 30, kind: "calc2", label: "Frontier partial tiles (entry, pubkey, hash L0–L3)", f: "2 + 4",
+      fn: (c, L) => L[23][c] > 0 ? 2 + HASH_LEVELS : 0, fmt: "n" },
+    { id: 31, kind: "calc2", label: "Checkpoint + landmarks", f: "2", fn: (c, L) => L[23][c] > 0 ? 2 : 0, fmt: "n" },
+    { id: 32, kind: "calc2", label: "Objects per log", f: "L24 + … + L31", total: true,
+      fn: (c, L) => [24, 25, 26, 27, 28, 29, 30, 31].reduce((s, i) => s + L[i][c], 0), fmt: "n" },
 
     { kind: "part", label: "Part V — Bytes per log", cols: true },
-    { id: 35, kind: "calc2", label: "Entry tiles, uncompressed", f: "L25 × L16", fn: (c, L) => L[25][c] * L[16], fmt: "b" },
-    { id: 36, kind: "calc2", label: "Entry tiles, compressed", f: "L25 × L17", fn: (c, L) => L[25][c] * L[17], fmt: "b" },
-    { id: 37, kind: "calc2", label: "Pubkey tiles, uncompressed", f: "L25 × L14", fn: (c, L) => L[25][c] * L[14], fmt: "b" },
-    { id: 38, kind: "calc2", label: "Pubkey tiles, compressed", f: "L25 × L15", fn: (c, L) => L[25][c] * L[15], fmt: "b" },
-    { id: 39, kind: "calc2", label: "Hash tiles (not compressed)", f: "32 × Σₖ₌₀³ ⌊L25 ÷ 256ᵏ⌋",
-      fn: (c, L) => hashBytes(L[25][c]), fmt: "b" },
-    { id: 40, kind: "calc2", label: "Per log, uncompressed", f: "L35 + L37 + L39", total: true,
-      fn: (c, L) => L[35][c] + L[37][c] + L[39][c], fmt: "b" },
-    { id: 41, kind: "calc2", label: "Per log, stored (compressed)", f: "L36 + L38 + L39", total: true,
-      fn: (c, L) => L[36][c] + L[38][c] + L[39][c], fmt: "b" },
+    { id: 33, kind: "calc2", label: "Entry tiles, uncompressed", f: "L23 × L14", fn: (c, L) => L[23][c] * L[14], fmt: "b" },
+    { id: 34, kind: "calc2", label: "Entry tiles, compressed", f: "L23 × L15", fn: (c, L) => L[23][c] * L[15], fmt: "b" },
+    { id: 35, kind: "calc2", label: "Pubkey tiles, uncompressed", f: "L23 × L12", fn: (c, L) => L[23][c] * L[12], fmt: "b" },
+    { id: 36, kind: "calc2", label: "Pubkey tiles, compressed", f: "L23 × L13", fn: (c, L) => L[23][c] * L[13], fmt: "b" },
+    { id: 37, kind: "calc2", label: "Hash tiles (not compressed)", f: "32 × Σₖ₌₀³ ⌊L23 ÷ 256ᵏ⌋",
+      fn: (c, L) => hashBytes(L[23][c]), fmt: "b" },
+    { id: 38, kind: "calc2", label: "Per log, uncompressed", f: "L33 + L35 + L37", total: true,
+      fn: (c, L) => L[33][c] + L[35][c] + L[37][c], fmt: "b" },
+    { id: 39, kind: "calc2", label: "Per log, stored (compressed)", f: "L34 + L36 + L37", total: true,
+      fn: (c, L) => L[34][c] + L[36][c] + L[37][c], fmt: "b" },
 
     { kind: "part", label: "Part VI — All logs of each type", cols: true },
-    { id: 42, kind: "calc2", label: "Objects", f: "L34 × L1", fn: (c, L) => L[34][c] * V["logs" + c], fmt: "n" },
-    { id: 43, kind: "calc2", label: "Uncompressed", f: "L40 × L1", fn: (c, L) => L[40][c] * V["logs" + c], fmt: "b" },
-    { id: 44, kind: "calc2", label: "Stored (compressed)", f: "L41 × L1", fn: (c, L) => L[41][c] * V["logs" + c], fmt: "b" },
-    { id: 45, kind: "calc2", label: "  of which pubkey tiles (compressed)", f: "L38 × L1", fn: (c, L) => L[38][c] * V["logs" + c], fmt: "b" },
+    { id: 40, kind: "calc2", label: "Objects", f: "L32 × L1", fn: (c, L) => L[32][c] * V["logs" + c], fmt: "n" },
+    { id: 41, kind: "calc2", label: "Uncompressed", f: "L38 × L1", fn: (c, L) => L[38][c] * V["logs" + c], fmt: "b" },
+    { id: 42, kind: "calc2", label: "Stored (compressed)", f: "L39 × L1", fn: (c, L) => L[39][c] * V["logs" + c], fmt: "b" },
+    { id: 43, kind: "calc2", label: "  of which pubkey tiles (compressed)", f: "L36 × L1", fn: (c, L) => L[36][c] * V["logs" + c], fmt: "b" },
 
     { kind: "part", label: "Part VII — CA writes per day, per log", cols: true },
-    { id: 46, kind: "calc2", label: "Checkpoints per day", f: "min(86400 ÷ L12, L22)",
-      fn: (c, L) => Math.min(86400 / V.cpint, L[22][c]), fmt: "n" },
-    { id: 47, kind: "calc2", label: "Entries per checkpoint", f: "L22 ÷ L46",
-      fn: (c, L) => L[46][c] ? L[22][c] / L[46][c] : 0, fmt: "n" },
-    { id: 48, kind: "calc2", label: "Full tile PUTs", f: "L22 × (2 + Σₖ₌₀³ 256⁻ᵏ) ÷ 256",
-      fn: (c, L) => L[22][c] / TILE * (2 + hashLevelSum()), fmt: "n" },
-    { id: 49, kind: "calc2", label: "Hash levels rewritten per checkpoint", f: "Σₖ₌₀³ min(1, L47 ÷ 256ᵏ)",
-      fn: (c, L) => dirtyLevels(L[47][c]), fmt: "n" },
-    { id: 50, kind: "calc2", label: "Partial tile PUTs", f: "L46 × (2 + L49)", fn: (c, L) => L[46][c] * (2 + L[49][c]), fmt: "n" },
-    { id: 51, kind: "calc2", label: "Partial tile DELETEs", f: "L50", fn: (c, L) => L[50][c], fmt: "n" },
-    { id: 52, kind: "calc2", label: "Checkpoint PUTs", f: "L46", fn: (c, L) => L[46][c], fmt: "n" },
-    { id: 53, kind: "calc2", label: "Total object operations", f: "L48 + L50 + L51 + L52", total: true,
-      fn: (c, L) => L[48][c] + L[50][c] + L[51][c] + L[52][c], fmt: "n" },
-    { id: 54, kind: "calc2", label: "Bytes written, full tiles (compressed)", f: "L22 × (L17 + L15 + 32 × Σₖ₌₀³ 256⁻ᵏ)",
-      fn: (c, L) => L[22][c] * (L[17] + L[15] + HASH * hashLevelSum()), fmt: "b" },
-    { id: 55, kind: "calc2", label: "Bytes written, partial tiles (compressed)", f: "L46 × 127.5 × (L17 + L15 + 32 × L49)",
-      fn: (c, L) => L[46][c] * PART_FILL * (L[17] + L[15] + HASH * L[49][c]), fmt: "b" },
-    { id: 56, kind: "calc2", label: "Bytes written per day, per log", f: "L54 + L55", total: true,
-      fn: (c, L) => L[54][c] + L[55][c], fmt: "b" },
-    { id: 57, kind: "calc2", label: "Object operations per day, all logs of type", f: "L53 × L1",
-      fn: (c, L) => L[53][c] * V["logs" + c], fmt: "n" },
-    { id: 58, kind: "calc2", label: "Bytes written per day, all logs of type", f: "L56 × L1",
-      fn: (c, L) => L[56][c] * V["logs" + c], fmt: "b" },
+    { id: 44, kind: "calc2", label: "Checkpoints per day", f: "min(86400 ÷ L10, L20)",
+      fn: (c, L) => Math.min(86400 / V.cpint, L[20][c]), fmt: "n" },
+    { id: 45, kind: "calc2", label: "Entries per checkpoint", f: "L20 ÷ L44",
+      fn: (c, L) => L[44][c] ? L[20][c] / L[44][c] : 0, fmt: "n" },
+    { id: 46, kind: "calc2", label: "Full tile PUTs", f: "L20 × (2 + Σₖ₌₀³ 256⁻ᵏ) ÷ 256",
+      fn: (c, L) => L[20][c] / TILE * (2 + hashLevelSum()), fmt: "n" },
+    { id: 47, kind: "calc2", label: "Hash levels rewritten per checkpoint", f: "Σₖ₌₀³ min(1, L45 ÷ 256ᵏ)",
+      fn: (c, L) => dirtyLevels(L[45][c]), fmt: "n" },
+    { id: 48, kind: "calc2", label: "Partial tile PUTs", f: "L44 × (2 + L47)", fn: (c, L) => L[44][c] * (2 + L[47][c]), fmt: "n" },
+    { id: 49, kind: "calc2", label: "Partial tile DELETEs", f: "L48", fn: (c, L) => L[48][c], fmt: "n" },
+    { id: 50, kind: "calc2", label: "Checkpoint PUTs", f: "L44", fn: (c, L) => L[44][c], fmt: "n" },
+    { id: 51, kind: "calc2", label: "Total object operations", f: "L46 + L48 + L49 + L50", total: true,
+      fn: (c, L) => L[46][c] + L[48][c] + L[49][c] + L[50][c], fmt: "n" },
+    { id: 52, kind: "calc2", label: "Bytes written, full tiles (compressed)", f: "L20 × (L15 + L13 + 32 × Σₖ₌₀³ 256⁻ᵏ)",
+      fn: (c, L) => L[20][c] * (L[15] + L[13] + HASH * hashLevelSum()), fmt: "b" },
+    { id: 53, kind: "calc2", label: "Bytes written, partial tiles (compressed)", f: "L44 × 127.5 × (L15 + L13 + 32 × L47)",
+      fn: (c, L) => L[44][c] * PART_FILL * (L[15] + L[13] + HASH * L[47][c]), fmt: "b" },
+    { id: 54, kind: "calc2", label: "Bytes written per day, per log", f: "L52 + L53", total: true,
+      fn: (c, L) => L[52][c] + L[53][c], fmt: "b" },
+    { id: 55, kind: "calc2", label: "Object operations per day, all logs of type", f: "L51 × L1",
+      fn: (c, L) => L[51][c] * V["logs" + c], fmt: "n" },
+    { id: 56, kind: "calc2", label: "Bytes written per day, all logs of type", f: "L54 × L1",
+      fn: (c, L) => L[54][c] * V["logs" + c], fmt: "b" },
 
     { kind: "part", label: "Part VIII — Mirror (all CAs, no pubkey tiles)", cols: true },
-    { id: 59, kind: "calc2", label: "Retention window (days)", f: "L2 + L11b", fn: (c) => V["life" + c] + V.mirrorRetention, fmt: "n" },
-    { id: 60, kind: "calc2", label: "Retained entries", f: "L22 × L1 × L59 ÷ (L13 ÷ 100)",
-      fn: (c, L) => L[22][c] * V["logs" + c] * L[59][c] / (V.leshare / 100), fmt: "n" },
-    { id: 61, kind: "calc2", label: "Entry tiles (full)", f: "⌊L60 ÷ 256⌋", fn: (c, L) => Math.floor(L[60][c] / TILE), fmt: "n" },
-    { id: 62, kind: "calc2", label: "Hash tiles, levels 0–3 (full)", f: "Σₖ₌₁⁴ ⌊L60 ÷ 256ᵏ⌋",
-      fn: (c, L) => { let t = 0; for (let k = 1; k <= HASH_LEVELS; k++) t += Math.floor(L[60][c] / TILE ** k); return t; }, fmt: "n" },
-    { id: 63, kind: "calc2", label: "Objects", f: "L61 + L62", total: true, fn: (c, L) => L[61][c] + L[62][c], fmt: "n" },
-    { id: 64, kind: "calc2", label: "Entry tiles, uncompressed", f: "L60 × L16", fn: (c, L) => L[60][c] * L[16], fmt: "b" },
-    { id: 65, kind: "calc2", label: "Entry tiles, compressed", f: "L60 × L17", fn: (c, L) => L[60][c] * L[17], fmt: "b" },
-    { id: 66, kind: "calc2", label: "Hash tiles (not compressed)", f: "32 × Σₖ₌₀³ ⌊L60 ÷ 256ᵏ⌋",
-      fn: (c, L) => hashBytes(L[60][c]), fmt: "b" },
-    { id: 67, kind: "calc2", label: "Uncompressed", f: "L64 + L66", total: true, fn: (c, L) => L[64][c] + L[66][c], fmt: "b" },
-    { id: 68, kind: "calc2", label: "Stored (compressed)", f: "L65 + L66", total: true, fn: (c, L) => L[65][c] + L[66][c], fmt: "b" },
-    { id: 69, kind: "calc1", label: "Mirror objects", f: "L63A + L63B", total: true, fn: L => L[63].A + L[63].B, fmt: "n" },
-    { id: 70, kind: "calc1", label: "Mirror uncompressed", f: "L67A + L67B", total: true, fn: L => L[67].A + L[67].B, fmt: "b" },
-    { id: 71, kind: "calc1", label: "Mirror stored (compressed)", f: "L68A + L68B", total: true, fn: L => L[68].A + L[68].B, fmt: "b" },
+    { id: 57, kind: "calc2", label: "Retention window (days)", f: "L2 + L9b", fn: (c) => V["life" + c] + V.mirrorRetention, fmt: "n" },
+    { id: 58, kind: "calc2", label: "Retained entries", f: "L20 × L1 × L57 ÷ (L11 ÷ 100)",
+      fn: (c, L) => L[20][c] * V["logs" + c] * L[57][c] / (V.leshare / 100), fmt: "n" },
+    { id: 59, kind: "calc2", label: "Entry tiles (full)", f: "⌊L58 ÷ 256⌋", fn: (c, L) => Math.floor(L[58][c] / TILE), fmt: "n" },
+    { id: 60, kind: "calc2", label: "Hash tiles, levels 0–3 (full)", f: "Σₖ₌₁⁴ ⌊L58 ÷ 256ᵏ⌋",
+      fn: (c, L) => { let t = 0; for (let k = 1; k <= HASH_LEVELS; k++) t += Math.floor(L[58][c] / TILE ** k); return t; }, fmt: "n" },
+    { id: 61, kind: "calc2", label: "Objects", f: "L59 + L60", total: true, fn: (c, L) => L[59][c] + L[60][c], fmt: "n" },
+    { id: 62, kind: "calc2", label: "Entry tiles, uncompressed", f: "L58 × L14", fn: (c, L) => L[58][c] * L[14], fmt: "b" },
+    { id: 63, kind: "calc2", label: "Entry tiles, compressed", f: "L58 × L15", fn: (c, L) => L[58][c] * L[15], fmt: "b" },
+    { id: 64, kind: "calc2", label: "Hash tiles (not compressed)", f: "32 × Σₖ₌₀³ ⌊L58 ÷ 256ᵏ⌋",
+      fn: (c, L) => hashBytes(L[58][c]), fmt: "b" },
+    { id: 65, kind: "calc2", label: "Uncompressed", f: "L62 + L64", total: true, fn: (c, L) => L[62][c] + L[64][c], fmt: "b" },
+    { id: 66, kind: "calc2", label: "Stored (compressed)", f: "L63 + L64", total: true, fn: (c, L) => L[63][c] + L[64][c], fmt: "b" },
+    { id: 67, kind: "calc1", label: "Mirror objects", f: "L61A + L61B", total: true, fn: L => L[61].A + L[61].B, fmt: "n" },
+    { id: 68, kind: "calc1", label: "Mirror uncompressed", f: "L65A + L65B", total: true, fn: L => L[65].A + L[65].B, fmt: "b" },
+    { id: 69, kind: "calc1", label: "Mirror stored (compressed)", f: "L66A + L66B", total: true, fn: L => L[66].A + L[66].B, fmt: "b" },
 
     { kind: "part", label: "Part IX — Summary" },
     { kind: "summary" },
@@ -334,18 +331,17 @@ function constrain(changed) {
 function compute() {
   const L = {};
   for (const r of ROWS) {
-    if (!r.id || r.kind === "in1" || r.kind === "in2") continue;
     if (r.kind === "calc1") L[r.id] = r.fn(L);
-    else L[r.id] = { A: r.fn("A", L), B: r.fn("B", L) };
+    else if (r.kind === "calc2") L[r.id] = { A: r.fn("A", L), B: r.fn("B", L) };
   }
   return L;
 }
 
 function totals(L) {
   return {
-    caObj: L[42].A + L[42].B, caU: L[43].A + L[43].B, caS: L[44].A + L[44].B,
-    pkObj: (L[27].A + (L[25].A > 0 ? 1 : 0)) * V.logsA + (L[27].B + (L[25].B > 0 ? 1 : 0)) * V.logsB,
-    pkS: L[45].A + L[45].B,
+    caObj: L[40].A + L[40].B, caU: L[41].A + L[41].B, caS: L[42].A + L[42].B,
+    pkObj: (L[25].A + (L[23].A > 0 ? 1 : 0)) * V.logsA + (L[25].B + (L[23].B > 0 ? 1 : 0)) * V.logsB,
+    pkS: L[43].A + L[43].B,
   };
 }
 
@@ -357,10 +353,9 @@ function fmtVal(x, fmt) {
   return num(x);
 }
 
-function inputCell(key, noRange) {
+function inputCell(key) {
   const s = INPUTS[key];
-  return `<div class="in">` +
-         (noRange ? "" : `<input type="range" data-k="${key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.v}">`) +
+  return `<div class="in"><input type="range" data-k="${key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.v}">` +
          `<input type="number" data-k="${key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.v}"></div>`;
 }
 
@@ -372,16 +367,14 @@ function build() {
       h += `<tr class="part"><th colspan="3">${r.label}</th>` +
            (r.cols ? `<th class="v wide" data-hdr="A"></th><th class="v wide" data-hdr="B"></th>` : `<th class="v wide" colspan="2"></th>`) + `</tr>`;
     } else if (r.kind === "in2") {
-      h += `<tr><td class="n">${r.id}</td><td>${r.label}</td><td class="f"></td>` +
+      h += `<tr><td class="n">${r.id}</td><td colspan="2">${r.label}</td>` +
            `<td class="v wide">${inputCell(r.keys[0])}</td><td class="v wide">${inputCell(r.keys[1])}</td></tr>`;
-    } else if (r.kind === "in2x") {
-      h += `<tr><td class="n">${r.id}</td><td>${r.label}</td><td class="f">${r.f}</td>` +
-           `<td class="v wide">${inputCell(r.key, r.noRange)}</td><td class="v wide" data-id="${r.id}" data-c="B"></td></tr>`;
     } else if (r.kind === "in1") {
-      h += `<tr><td class="n">${r.id}</td><td>${r.label}</td><td class="f"></td>` +
-           `<td class="v wide" colspan="2">${inputCell(r.key, r.noRange)}</td></tr>`;
-    } else if (r.kind === "mixbar") {
-      h += `<tr><td class="n"></td><td>${r.label}</td><td class="f"></td>` +
+      h += `<tr><td class="n">${r.id}</td><td colspan="2">${r.label}</td>` +
+           `<td class="v wide" colspan="2">${inputCell(r.key)}</td></tr>`;
+    } else if (r.kind === "mix") {
+      // r.f is only exported to the CSV; the bar shows the relationship.
+      h += `<tr><td class="n">${r.id}</td><td colspan="2">${r.label}</td>` +
            `<td colspan="2" data-mix="${r.mix}">${mixBarHTML(MIXBARS[r.mix])}</td></tr>`;
     } else if (r.kind === "calc1") {
       h += `<tr${r.total ? ' class="total"' : ""}><td class="n">${r.id}</td><td>${r.label}</td><td class="f">${r.f}</td>` +
@@ -416,16 +409,18 @@ function build() {
 // ---------- Mix bars ----------
 // A stacked bar of shares that sum to 100%. Handle i sits at the cumulative share of the
 // first i + 1 segments; moving it trades share between the segments on either side. Only
-// the `stored` shares are inputs; the remaining segment gets whatever is left.
+// the `stored` shares are inputs; the remaining segment gets whatever is left. Each segment
+// is line <id><sfx>; `cols` bars are exported to CSV as the A/B columns of one row, others
+// as one row per segment.
 const MIXBARS = {
   life: {
-    stored: ["shareA"],
-    segs: [{ key: "shareA", name: () => ROWS.lA() }, { key: "shareB", name: () => ROWS.lB() }],
+    id: 5, cols: true, stored: ["shareA"],
+    segs: ["A", "B"].map(c => ({ key: "share" + c, sfx: c, name: () => `${num(V["life" + c])}-day logs` })),
   },
   // Ordered by key size.
   key: {
-    stored: MIXKEYS,
-    segs: [...ALGS].sort((a, b) => a.spki - b.spki).map(g => ({ key: g.key, name: () => g.name })),
+    id: 6, stored: MIXKEYS,
+    segs: [...ALGS].sort((a, b) => a.spki - b.spki).map((g, i) => ({ key: g.key, sfx: "abcd"[i], name: () => g.name })),
   },
 };
 function share(mb, k) {
@@ -438,7 +433,7 @@ function mixCum(mb) {
 }
 function mixBarHTML(mb) {
   return `<div class="mixwrap"><div class="mixlabels">` +
-    mb.segs.map(() => `<div class="lbl"><i></i><b></b><span></span></div>`).join("") +
+    mb.segs.map(g => `<div class="lbl"><i></i><b></b><span><em>${mb.id}${g.sfx}</em> <u></u></span></div>`).join("") +
     `</div><svg class="mixlead"><path></path></svg>` +
     `<div class="mix">${mb.segs.map(() => `<div class="seg"></div>`).join("")}` +
     mb.segs.slice(0, -1).map((g, i) => `<div class="h" role="slider" tabindex="0" data-h="${i}"></div>`).join("") +
@@ -510,7 +505,7 @@ function updateMixBar(mb) {
   const lbls = mb.labels;
   lbls.forEach((el, i) => {
     el.querySelector("b").textContent = names[i];
-    el.querySelector("span").textContent = nf2.format(share(mb, mb.segs[i].key)) + "%";
+    el.querySelector("u").textContent = nf2.format(share(mb, mb.segs[i].key)) + "%";
   });
   const GAP = 8, wd = lbls.map(el => el.offsetWidth), left = [];
   for (let i = 0; i < lbls.length; i++) {
@@ -557,8 +552,6 @@ function update(src) {
       document.querySelector(`[data-id="${r.id}"]`).innerHTML = fmtVal(L[r.id], r.fmt);
     } else if (r.kind === "calc2") {
       for (const c of ["A", "B"]) document.querySelector(`[data-id="${r.id}"][data-c="${c}"]`).innerHTML = fmtVal(L[r.id][c], r.fmt);
-    } else if (r.kind === "in2x") {
-      document.querySelector(`[data-id="${r.id}"][data-c="B"]`).innerHTML = fmtVal(r.fn("B"), r.fmt);
     }
   }
 
@@ -575,11 +568,11 @@ function update(src) {
   // Summary.
   const { caObj, caU, caS, pkObj, pkS } = totals(L);
   const rows = [
-    [ROWS.lA(), "L42A, L43A, L44A", L[42].A, L[43].A, L[44].A],
-    [ROWS.lB(), "L42B, L43B, L44B", L[42].B, L[43].B, L[44].B],
+    [ROWS.lA(), "L40A, L41A, L42A", L[40].A, L[41].A, L[42].A],
+    [ROWS.lB(), "L40B, L41B, L42B", L[40].B, L[41].B, L[42].B],
     ["CA total", "A + B", caObj, caU, caS, true],
-    ["Mirror", "L69, L70, L71", L[69], L[70], L[71]],
-    ["Mirror ÷ CA", "", L[69] / caObj, L[70] / caU, L[71] / caS, false, true],
+    ["Mirror", "L67, L68, L69", L[67], L[68], L[69]],
+    ["Mirror ÷ CA", "", L[67] / caObj, L[68] / caU, L[69] / caS, false, true],
   ];
   let s = `<tr><th></th><th>From</th><th class="v">Objects</th><th class="v">Uncompressed</th><th class="v">Stored (compressed)</th></tr>`;
   for (const [name, from, o, u, st, tot, ratio] of rows) {
@@ -596,10 +589,10 @@ function update(src) {
     `<td class="v">${num(o)}</td><td class="v">${gib(b)}</td></tr>`;
   document.getElementById("headline").innerHTML =
     `<tr class="part"><th colspan="2">Summary</th><th class="v">Objects</th><th class="v">Stored (compressed)</th></tr>` +
-    hl("Let's Encrypt CA: standard log", "Σ(L42 − (L27 + 1) × L1), Σ(L44 − L45)", caObj - pkObj, caS - pkS) +
-    hl("Let's Encrypt CA: pubkey tiles", "Σ((L27 + 1) × L1), Σ L45", pkObj, pkS) +
-    hl("Let's Encrypt CA: total", "Σ L42, Σ L44", caObj, caS, true) +
-    hl("Every MTCA Mirror", "L69, L71", L[69], L[71], true);
+    hl("Let's Encrypt CA: standard log", "Σ(L40 − (L25 + 1) × L1), Σ(L42 − L43)", caObj - pkObj, caS - pkS) +
+    hl("Let's Encrypt CA: pubkey tiles", "Σ((L25 + 1) × L1), Σ L43", pkObj, pkS) +
+    hl("Let's Encrypt CA: total", "Σ L40, Σ L42", caObj, caS, true) +
+    hl("Every MTCA Mirror", "L67, L69", L[67], L[69], true);
 
   try {
     const q = new URLSearchParams();
@@ -609,87 +602,87 @@ function update(src) {
 }
 
 // ---------- CSV export ----------
-// Spreadsheet formulas for each calculated line. "L22" refers to line 22 in the same
-// column (A or B) as the formula, "L63A" to a specific column; single-value lines live in
+// Spreadsheet formulas for each calculated line. "L20" refers to line 20 in the same
+// column (A or B) as the formula, "L61A" to a specific column; single-value lines live in
 // column A.
 const LVL = Array.from({ length: HASH_LEVELS }, (_, k) => k ? `1/256^${k}` : "1").join("+");
-const MIXLINE = { p256: 6, mldsa: "7a", mldsa87: "7b", rsa: 8 };
+const MIXLINE = Object.fromEntries(MIXBARS.key.segs.map(g => [g.key, MIXBARS.key.id + g.sfx]));
 const hashBytesX = n => `${HASH}*(` + Array.from({ length: HASH_LEVELS }, (_, k) => k ? `INT(${n}/256^${k})` : `INT(${n})`).join("+") + ")";
 const XF = {
   5: "100-L5A",
-  8: "100-L6-L7a-L7b",
-  14: "(" + ALGS.map(a => `L${MIXLINE[a.key]}*${REC_HDR + a.spki}`).join("+") + ")/100",
-  15: "(" + ALGS.map(a => `L${MIXLINE[a.key]}*${a.rand + GZ_REF}`).join("+") + ")/100",
-  16: `${ENT_HDR}+L9`,
-  17: "L16*L10/100",
-  18: `${TILE}*${HASH}`,
-  19: "L4*1000000*L5/100",
-  20: "L19/MIN(L3,L2)",
-  21: "L20*L2",
-  22: "IF(L1=0,0,L20/L1)",
-  23: "L22/86400",
-  24: "L2+L11a",
-  25: "L22*L24",
-  26: "INT(L25/256)",
-  27: "L26",
-  28: "INT(L25/256)",
-  29: "INT(L25/256^2)",
-  30: "INT(L25/256^3)",
-  31: "INT(L25/256^4)",
-  32: `IF(L25>0,${2 + HASH_LEVELS},0)`,
-  33: "IF(L25>0,2,0)",
-  34: "L26+L27+L28+L29+L30+L31+L32+L33",
-  35: "L25*L16",
-  36: "L25*L17",
-  37: "L25*L14",
-  38: "L25*L15",
-  39: hashBytesX("L25"),
-  40: "L35+L37+L39",
-  41: "L36+L38+L39",
-  42: "L34*L1",
-  43: "L40*L1",
-  44: "L41*L1",
-  45: "L38*L1",
-  46: "MIN(86400/L12,L22)",
-  47: "IF(L46=0,0,L22/L46)",
-  48: `L22/256*(2+${LVL})`,
-  49: "IF(L47<=0,0," + Array.from({ length: HASH_LEVELS }, (_, k) => k ? `MIN(1,L47/256^${k})` : "MIN(1,L47)").join("+") + ")",
-  50: "L46*(2+L49)",
-  51: "L50",
-  52: "L46",
-  53: "L48+L50+L51+L52",
-  54: `L22*(L17+L15+${HASH}*(${LVL}))`,
-  55: `L46*${PART_FILL}*(L17+L15+${HASH}*L49)`,
-  56: "L54+L55",
-  57: "L53*L1",
-  58: "L56*L1",
-  59: "L2+L11b",
-  60: "L22*L1*L59/(L13/100)",
-  61: "INT(L60/256)",
-  62: Array.from({ length: HASH_LEVELS }, (_, k) => `INT(L60/256^${k + 1})`).join("+"),
-  63: "L61+L62",
-  64: "L60*L16",
-  65: "L60*L17",
-  66: hashBytesX("L60"),
-  67: "L64+L66",
-  68: "L65+L66",
-  69: "L63A+L63B",
-  70: "L67A+L67B",
-  71: "L68A+L68B",
+  [MIXLINE.rsa]: "100-" + MIXKEYS.map(k => "L" + MIXLINE[k]).join("-"),
+  12: "(" + ALGS.map(a => `L${MIXLINE[a.key]}*${REC_HDR + a.spki}`).join("+") + ")/100",
+  13: "(" + ALGS.map(a => `L${MIXLINE[a.key]}*${a.rand + GZ_REF}`).join("+") + ")/100",
+  14: `${ENT_HDR}+L7`,
+  15: "L14*L8/100",
+  16: `${TILE}*${HASH}`,
+  17: "L4*1000000*L5/100",
+  18: "L17/MIN(L3,L2)",
+  19: "L18*L2",
+  20: "IF(L1=0,0,L18/L1)",
+  21: "L20/86400",
+  22: "L2+L9a",
+  23: "L20*L22",
+  24: "INT(L23/256)",
+  25: "L24",
+  26: "INT(L23/256)",
+  27: "INT(L23/256^2)",
+  28: "INT(L23/256^3)",
+  29: "INT(L23/256^4)",
+  30: `IF(L23>0,${2 + HASH_LEVELS},0)`,
+  31: "IF(L23>0,2,0)",
+  32: "L24+L25+L26+L27+L28+L29+L30+L31",
+  33: "L23*L14",
+  34: "L23*L15",
+  35: "L23*L12",
+  36: "L23*L13",
+  37: hashBytesX("L23"),
+  38: "L33+L35+L37",
+  39: "L34+L36+L37",
+  40: "L32*L1",
+  41: "L38*L1",
+  42: "L39*L1",
+  43: "L36*L1",
+  44: "MIN(86400/L10,L20)",
+  45: "IF(L44=0,0,L20/L44)",
+  46: `L20/256*(2+${LVL})`,
+  47: "IF(L45<=0,0," + Array.from({ length: HASH_LEVELS }, (_, k) => k ? `MIN(1,L45/256^${k})` : "MIN(1,L45)").join("+") + ")",
+  48: "L44*(2+L47)",
+  49: "L48",
+  50: "L44",
+  51: "L46+L48+L49+L50",
+  52: `L20*(L15+L13+${HASH}*(${LVL}))`,
+  53: `L44*${PART_FILL}*(L15+L13+${HASH}*L47)`,
+  54: "L52+L53",
+  55: "L51*L1",
+  56: "L54*L1",
+  57: "L2+L9b",
+  58: "L20*L1*L57/(L11/100)",
+  59: "INT(L58/256)",
+  60: Array.from({ length: HASH_LEVELS }, (_, k) => `INT(L58/256^${k + 1})`).join("+"),
+  61: "L59+L60",
+  62: "L58*L14",
+  63: "L58*L15",
+  64: hashBytesX("L58"),
+  65: "L62+L64",
+  66: "L63+L64",
+  67: "L61A+L61B",
+  68: "L65A+L65B",
+  69: "L66A+L66B",
 };
 // Summary lines: [label, formula, value from totals()].
-const PK_OBJ = "(L27A+IF(L25A>0,1,0))*L1A+(L27B+IF(L25B>0,1,0))*L1B";
+const PK_OBJ = "(L25A+IF(L23A>0,1,0))*L1A+(L25B+IF(L23B>0,1,0))*L1B";
 const XF_SUMMARY = [
-  ["CA total: objects", "L42A+L42B", T => T.caObj],
-  ["CA total: uncompressed", "L43A+L43B", T => T.caU],
-  ["CA total: stored (compressed)", "L44A+L44B", T => T.caS],
+  ["CA total: objects", "L40A+L40B", T => T.caObj],
+  ["CA total: uncompressed", "L41A+L41B", T => T.caU],
+  ["CA total: stored (compressed)", "L42A+L42B", T => T.caS],
   ["CA pubkey tiles: objects", PK_OBJ, T => T.pkObj],
-  ["CA pubkey tiles: stored (compressed)", "L45A+L45B", T => T.pkS],
-  ["CA standard log: objects", `L42A+L42B-(${PK_OBJ})`, T => T.caObj - T.pkObj],
-  ["CA standard log: stored (compressed)", "L44A+L44B-L45A-L45B", T => T.caS - T.pkS],
-  ["Mirror ÷ CA: objects", "L69/(L42A+L42B)", (T, L) => L[69] / T.caObj],
-  ["Mirror ÷ CA: uncompressed", "L70/(L43A+L43B)", (T, L) => L[70] / T.caU],
-  ["Mirror ÷ CA: stored (compressed)", "L71/(L44A+L44B)", (T, L) => L[71] / T.caS],
+  ["CA pubkey tiles: stored (compressed)", "L43A+L43B", T => T.pkS],
+  ["CA standard log: objects", `L40A+L40B-(${PK_OBJ})`, T => T.caObj - T.pkObj],
+  ["CA standard log: stored (compressed)", "L42A+L42B-L43A-L43B", T => T.caS - T.pkS],
+  ["Mirror ÷ CA: objects", "L67/(L40A+L40B)", (T, L) => L[67] / T.caObj],
+  ["Mirror ÷ CA: uncompressed", "L68/(L41A+L41B)", (T, L) => L[68] / T.caU],
+  ["Mirror ÷ CA: stored (compressed)", "L69/(L42A+L42B)", (T, L) => L[69] / T.caS],
 ];
 
 // Columns: line, description, formula, A, B, JS A, JS B, check A, check B.
@@ -697,17 +690,22 @@ function buildCSV() {
   readValues();
   const L = compute(), T = totals(L);
   const COL = { A: "D", B: "E" }, JS = { A: "F", B: "G" }, CHK = { A: "H", B: "I" };
-  const two = new Set(["in2", "in2x", "calc2"]);
+  const two = new Set(["in2", "calc2"]);
   const rowOf = {}, twoCol = {};
   let n = 2;
   for (const r of ROWS) {
-    if (r.kind === "algs" || r.kind === "mixbar") continue;
+    if (r.kind === "algs") continue;
     if (r.kind === "summary") { n += XF_SUMMARY.length; continue; }
+    if (r.kind === "mix" && !MIXBARS[r.mix].cols) {
+      for (const g of MIXBARS[r.mix].segs) { rowOf[r.id + g.sfx] = n++; twoCol[r.id + g.sfx] = false; }
+      continue;
+    }
+    if (r.kind === "mix") { rowOf[r.id] = n++; twoCol[r.id] = true; continue; }
     if (r.id) { rowOf[r.id] = n; twoCol[r.id] = two.has(r.kind); }
     n++;
   }
   const lastRow = n;
-  const fx = (src, c) => "=" + src.replace(/\bL(\d+[ab]?)([AB]?)\b/g, (m, id, cc) => {
+  const fx = (src, c) => "=" + src.replace(/\bL(\d+[a-d]?)([AB]?)\b/g, (m, id, cc) => {
     if (!(id in rowOf)) throw new Error("bad ref " + m);
     return (twoCol[id] ? COL[cc || c] : "D") + rowOf[id];
   });
@@ -715,16 +713,40 @@ function buildCSV() {
   const chk = (v, j) => `=IF(ISERROR(${v}),IF(${j}="","OK","MISMATCH"),` +
     `IFERROR(IF(ABS(${v}-${j})<=1E-9*MAX(1,ABS(${j})),"OK","MISMATCH"),"MISMATCH"))`;
 
+  const calcIn = (cells, row, c, x) => {
+    cells[c === "A" ? 3 : 4] = x.f;
+    cells[c === "A" ? 5 : 6] = jsv(x.js);
+    cells[c === "A" ? 7 : 8] = chk(COL[c] + row, JS[c] + row);
+  };
   const out = [["Line", "Description", "Formula", "A", "B", "JS A", "JS B", "Check A", "Check B"]];
   for (const r of ROWS) {
     const row = out.length + 1;
     const cells = new Array(9).fill("");
-    const calc = (c, x) => {
-      cells[c === "A" ? 3 : 4] = x.f;
-      cells[c === "A" ? 5 : 6] = jsv(x.js);
-      cells[c === "A" ? 7 : 8] = chk(COL[c] + row, JS[c] + row);
-    };
-    if (r.kind === "algs" || r.kind === "mixbar") continue;
+    const calc = (c, x) => calcIn(cells, row, c, x);
+    if (r.kind === "algs") continue;
+    if (r.kind === "mix") {
+      const mb = MIXBARS[r.mix];
+      // Stored shares are inputs; the remaining share is a formula.
+      const segCell = (g, c, cells, row) => {
+        if (mb.stored.includes(g.key)) cells[c === "A" ? 3 : 4] = V[g.key];
+        else calcIn(cells, row, c, { f: fx(XF[mb.cols ? r.id : r.id + g.sfx], c), js: share(mb, g.key) });
+      };
+      if (mb.cols) {
+        const cells = new Array(9).fill(""), row = out.length + 1;
+        cells[0] = r.id; cells[1] = r.label; cells[2] = r.f;
+        for (const g of mb.segs) segCell(g, g.sfx, cells, row);
+        out.push(cells);
+      } else {
+        for (const g of mb.segs) {
+          const cells = new Array(9).fill(""), row = out.length + 1;
+          cells[0] = r.id + g.sfx; cells[1] = `${r.label}: ${g.name()}`;
+          if (!mb.stored.includes(g.key)) cells[2] = r.f;
+          segCell(g, "A", cells, row);
+          out.push(cells);
+        }
+      }
+      continue;
+    }
     if (r.kind === "summary") {
       for (const [label, f, v] of XF_SUMMARY) {
         const s = new Array(9).fill("");
@@ -743,7 +765,6 @@ function buildCSV() {
     cells[0] = r.id; cells[1] = r.label.trim(); cells[2] = r.f || "";
     if (r.kind === "in1") cells[3] = V[r.key];
     else if (r.kind === "in2") { cells[3] = V[r.keys[0]]; cells[4] = V[r.keys[1]]; }
-    else if (r.kind === "in2x") { cells[3] = V[r.key]; calc("B", { f: fx(XF[r.id], "B"), js: r.fn("B") }); }
     else if (r.kind === "calc1") calc("A", { f: fx(XF[r.id], "A"), js: L[r.id] });
     else if (r.kind === "calc2") for (const c of ["A", "B"]) calc(c, { f: fx(XF[r.id], c), js: L[r.id][c] });
     out.push(cells);
